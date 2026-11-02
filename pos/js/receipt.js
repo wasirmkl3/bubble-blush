@@ -52,9 +52,11 @@ const Receipt = (() => {
       if (inc.length) ops.push({ t: 'text', s: `Included: ${inc.join(', ')}`, z: 0.9, i: 1 });
       (l.toppings || []).forEach((tp, k) => {
         ops.push({ t: 'row', l: `+ ${Store.topName(tp)}`, r: m(tp.price * Store.topQty(tp) * l.qty), z: 0.9, i: 1 });
+        if (l.compDrink) return;
         if (tp.comp) ops.push({ t: 'row', l: 'Complimentary', r: '-' + m(tp.price * Store.topQty(tp) * l.qty), z: 0.9, i: 2 });
         if (l.promo && k === l.promoIndex) ops.push({ t: 'row', l: order.promoName || 'Free topping', r: '-' + m(l.promo * l.qty), z: 0.9, i: 2 });
       });
+      if (l.compDrink) ops.push({ t: 'row', l: 'Complimentary drink', r: '-' + m(l.comp * l.qty), z: 0.9, i: 2 });
       if (l.note) ops.push({ t: 'text', s: `Note: ${l.note}`, z: 0.9, i: 1 });
     });
     ops.push({ t: 'hr' });
@@ -146,7 +148,8 @@ const Receipt = (() => {
       { t: 'row', l: 'Gross sales', r: m(r.gross) },
     ];
     if (r.promo) ops.push({ t: 'row', l: `Promotion (${r.promoCups} free toppings)`, r: '-' + m(r.promo) });
-    if (r.comp) ops.push({ t: 'row', l: `Complimentary (${r.compToppings} toppings)`, r: '-' + m(r.comp) });
+    const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    if (r.comp) ops.push({ t: 'row', l: `Complimentary (${[r.compDrinks && pl(r.compDrinks, 'drink'), r.compToppings && pl(r.compToppings, 'topping')].filter(Boolean).join(', ')})`, r: '-' + m(r.comp) });
     ops.push({ t: 'row', l: 'Discounts', r: '-' + m(r.discount) });
     if (r.vat) ops.push({ t: 'row', l: 'VAT', r: m(r.vat) });
     if (r.deliveryCharges) ops.push({ t: 'row', l: 'Delivery charges', r: m(r.deliveryCharges) });
@@ -156,6 +159,13 @@ const Receipt = (() => {
     if (r.unpaid) ops.push({ t: 'row', l: `NOT PAID YET (${r.unpaid})`, r: m(r.unpaidValue), b: true });
     ops.push({ t: 'hr' }, { t: 'text', s: 'Payments', b: true });
     r.payments.forEach((p) => ops.push({ t: 'row', l: `${p.method} (${p.count})`, r: m(p.amount) }));
+    if (r.comp) {
+      ops.push({ t: 'hr' }, { t: 'text', s: 'Complimentary (given free)', b: true });
+      (r.compBy || []).forEach((c) => ops.push({ t: 'row', l: `${c.reason} (${c.orders})`, r: `${m(c.value)} / cost ${m(c.cost)}`, z: 0.9 }));
+      ops.push({ t: 'row', l: 'Menu value given', r: m(r.comp) });
+      ops.push({ t: 'row', l: 'Cost to the shop', r: m(r.compCost), b: true });
+      ops.push({ t: 'text', s: '(cost is already inside Ingredient cost)', z: 0.8 });
+    }
     ops.push({ t: 'hr' }, { t: 'text', s: 'Cash drawer', b: true });
     ops.push({ t: 'row', l: 'Opening cash', r: m(r.openingCash || 0) });
     ops.push({ t: 'row', l: '+ Cash sales', r: m(r.cashSales) });

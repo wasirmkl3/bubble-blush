@@ -299,7 +299,7 @@ Views.pos = (() => {
       if (existing) cart.lines[editIndex] = line;
       else {
         // merge identical lines
-        const key = (l) => JSON.stringify([l.kind || 'drink', l.itemId, l.sizeId, l.sugar, l.ice, l.note, !!l.parcel,
+        const key = (l) => JSON.stringify([l.kind || 'drink', l.itemId, l.sizeId, l.sugar, l.ice, l.note, !!l.parcel, !!l.compDrink,
           l.toppings.map((x) => `${topKey(x)}|${Store.topQty(x)}|${x.comp ? 'comp' : ''}`).sort()]);
         const same = cart.lines.find((l) => key(l) === key(line));
         if (same) same.qty += line.qty; else cart.lines.push(line);
@@ -329,10 +329,10 @@ Views.pos = (() => {
         const incl = topLine ? [] : Store.includedNames(Store.S.item[l.itemId]);
         return `<div class="cl ${l.parcel ? 'parcel' : ''}" data-i="${i}">
           <div class="cl-main" data-edit="${i}">
-            <div class="cl-name">${U.esc(l.name)} ${topLine ? '<span class="tag">no drink</span>' : `<span class="tag">${U.esc(Store.sizeLabel(l.sizeId))}</span>`}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}</div>
+            <div class="cl-name">${U.esc(l.name)} ${topLine ? '<span class="tag">no drink</span>' : `<span class="tag">${U.esc(Store.sizeLabel(l.sizeId))}</span>`}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}</div>
             ${opts ? `<div class="cl-sub">${U.esc(opts)}</div>` : ''}
             ${incl.length ? `<div class="cl-sub">Included: ${incl.map(U.esc).join(', ')}</div>` : ''}
-            ${l.toppings.map((x, k) => `<div class="cl-sub">+ ${U.esc(Store.topName(x))} ${x.comp ? `<s>${U.money(topPrice(x))}</s> <b class="comp-tag">🎁 COMPLIMENTARY</b>` : U.money(topPrice(x))}${k === pr.index && pr.amount ? ' <b class="free-tag">FREE</b>' : ''}</div>`).join('')}
+            ${l.toppings.map((x, k) => `<div class="cl-sub">+ ${U.esc(Store.topName(x))} ${x.comp && !l.compDrink ? `<s>${U.money(topPrice(x))}</s> <b class="comp-tag">🎁 COMPLIMENTARY</b>` : U.money(topPrice(x))}${k === pr.index && pr.amount ? ' <b class="free-tag">FREE</b>' : ''}</div>`).join('')}
             ${l.note ? `<div class="cl-sub note">✎ ${U.esc(l.note)}</div>` : ''}
           </div>
           <div class="cl-side">
@@ -349,7 +349,7 @@ Views.pos = (() => {
         <div class="cart-actions">
           <button class="btn sm ghost" id="cartDisc" ${cart.lines.length ? '' : 'disabled'}>🏷 ${cart.discount ? 'Edit discount' : 'Discount'}</button>
           <button class="btn sm ghost" id="cartNote">✎ ${cart.note ? 'Edit note' : 'Order note'}</button>
-          <button class="btn sm ghost" id="cartComp" ${cart.lines.length ? '' : 'disabled'} title="Give toppings free, e.g. for a relative or a favourite customer">🎁 Complimentary</button>
+          <button class="btn sm ghost" id="cartComp" ${cart.lines.length ? '' : 'disabled'} title="Give a drink or toppings free, e.g. for a relative or a favourite customer">🎁 Complimentary</button>
         </div>
         ${isDelivery() || anyParcel() ? `<div class="charges">
           ${isDelivery() ? `<label>🛵 Delivery charge ৳ <input type="number" min="0" step="1" id="chDelivery" value="${U.n(cart.deliveryCharge) || ''}" placeholder="0"></label>` : ''}
@@ -561,41 +561,65 @@ Views.pos = (() => {
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); md.el.querySelector('.modal-actions .primary').click(); } });
   }
 
-  /* Complimentary toppings: tick the toppings to give free and pick who it is for. */
+  /* Complimentary: tick whole drinks or single toppings to give free, and pick who it is for. */
   function openComp() {
+    const drinks = cart.lines.map((l, li) => ({ l, li })).filter((d) => !Store.isToppingLine(d.l));
     const rows = [];
     cart.lines.forEach((l, li) => (l.toppings || []).forEach((t, ti) => rows.push({ l, li, t, ti })));
     const reasons = (st().compReasons || []).filter(Boolean);
     const body = document.createElement('div');
-    body.innerHTML = rows.length ? `
-      <p class="muted small">Ticked toppings are free for the customer. Stock is still taken, and Reports show the total given away.
-        A line with qty 2 or more is free for every cup on that line.</p>
-      <div class="comp-list">${rows.map((r, k) => `<label class="check comp-row"><input type="checkbox" data-ck="${k}" ${r.t.comp ? 'checked' : ''}>
+    body.innerHTML = `
+      <p class="muted small">Ticked items are free for the customer. Stock is still taken, and Reports show the menu value given away
+        and what it cost in ingredients. A line with qty 2 or more is free for every cup on that line.</p>
+      ${drinks.length ? `<div class="opt-group"><label>Whole drink free</label><div class="comp-list">${drinks.map((d) => `<label class="check comp-row"><input type="checkbox" data-cd="${d.li}" ${d.l.compDrink ? 'checked' : ''}>
+        <span><b>${U.esc(d.l.qty + ' × ' + d.l.name)}</b> <small class="muted">${U.esc(Store.sizeLabel(d.l.sizeId))}</small>${d.l.toppings.length ? `<br><small class="muted">with ${d.l.toppings.map((t) => U.esc(Store.topName(t))).join(', ')}</small>` : ''}<br>
+        <small class="muted">${U.money(Store.lineUnitPrice(d.l) * d.l.qty)} · cost ${U.money(Store.lineCost(d.l))}</small></span></label>`).join('')}</div></div>` : ''}
+      ${rows.length ? `<div class="opt-group"><label>Only a topping free</label><div class="comp-list">${rows.map((r, k) => `<label class="check comp-row"><input type="checkbox" data-ck="${k}" data-li="${r.li}" ${r.t.comp && !r.l.compDrink ? 'checked' : ''}>
         <span><b>${U.esc(r.l.qty + ' × ' + r.l.name)}</b>${Store.isToppingLine(r.l) ? '' : ` <small class="muted">${U.esc(Store.sizeLabel(r.l.sizeId))}</small>`}<br>
-        + ${U.esc(Store.topName(r.t))} <small class="muted">${U.money(topPrice(r.t) * r.l.qty)}</small></span></label>`).join('')}</div>
-      <div class="opt-group mt"><label>Complimentary for</label>
+        + ${U.esc(Store.topName(r.t))} <small class="muted">${U.money(topPrice(r.t) * r.l.qty)}</small></span></label>`).join('')}</div></div>` : ''}
+      <div class="opt-group mt"><label>Complimentary for <small class="muted">(e.g. Relative · Karim)</small></label>
         <input type="text" id="compReason" value="${U.esc(cart.compReason || '')}" placeholder="Relative, favourite customer…">
-        ${reasons.length ? `<div class="chips mt">${reasons.map((r) => `<button type="button" class="chip" data-cr="${U.esc(r)}">${U.esc(r)}</button>`).join('')}</div>` : ''}</div>`
-      : `<p>No toppings in this order yet.</p><p class="muted">Tap the drink in the cart (or a new drink), add the topping, then tap <b>🎁</b> next to it, or come back here to tick it.</p>`;
+        ${reasons.length ? `<div class="chips mt">${reasons.map((r) => `<button type="button" class="chip" data-cr="${U.esc(r)}">${U.esc(r)}</button>`).join('')}</div>` : ''}</div>`;
+    // A whole free drink already includes its toppings: lock its topping ticks.
+    const syncLocks = () => U.$$('[data-ck]', body).forEach((c) => {
+      const whole = U.$(`[data-cd="${c.dataset.li}"]`, body)?.checked;
+      c.disabled = !!whole;
+      c.closest('label').classList.toggle('muted', !!whole);
+    });
     U.modal({
-      title: '🎁 Complimentary toppings',
+      title: '🎁 Complimentary',
       body,
       wide: true,
-      actions: rows.length ? [
-        { label: 'Charge all', cls: 'danger', left: true, onClick: () => { rows.forEach((r) => delete r.t.comp); cart.compReason = ''; saveCart(); renderCart(); } },
+      actions: [
+        { label: 'Charge all', cls: 'danger', left: true, onClick: () => {
+          cart.lines.forEach((l) => { delete l.compDrink; (l.toppings || []).forEach((t) => delete t.comp); });
+          cart.compReason = ''; saveCart(); renderCart();
+        } },
         { label: 'Cancel' },
         { label: 'Apply', cls: 'primary', onClick: () => {
-          rows.forEach((r, k) => { if (U.$(`[data-ck="${k}"]`, body).checked) r.t.comp = true; else delete r.t.comp; });
-          const any = rows.some((r) => r.t.comp);
-          cart.compReason = any ? U.$('#compReason', body).value.trim() : '';
+          const reason = U.$('#compReason', body).value.trim();
+          drinks.forEach((d) => { if (U.$(`[data-cd="${d.li}"]`, body).checked) d.l.compDrink = true; else delete d.l.compDrink; });
+          rows.forEach((r, k) => { if (!r.l.compDrink && U.$(`[data-ck="${k}"]`, body).checked) r.t.comp = true; else delete r.t.comp; });
+          const any = cart.lines.some((l) => l.compDrink || (l.toppings || []).some((t) => t.comp));
+          cart.compReason = any ? reason : '';
           saveCart(); renderCart();
-          if (any) U.toast('Complimentary toppings applied');
+          if (any) U.toast(`Complimentary applied${reason ? ' · ' + reason : ''}`);
         } },
-      ] : [{ label: 'OK' }],
+      ],
     });
+    body.addEventListener('change', (e) => { if (e.target.matches('[data-cd]')) syncLocks(); });
+    syncLocks();
     body.addEventListener('click', (e) => {
       const c = e.target.closest('[data-cr]');
-      if (c) U.$('#compReason', body).value = c.dataset.cr;
+      if (c) {
+        // Keep a name typed after the reason: "Relative · Karim" → tap "Friend" → "Friend · Karim".
+        const inp = U.$('#compReason', body);
+        const parts = inp.value.split(' · ');
+        const known = reasons.includes(parts[0]);
+        const rest = known ? parts.slice(1).join(' · ') : '';
+        inp.value = rest ? `${c.dataset.cr} · ${rest}` : c.dataset.cr;
+        inp.focus();
+      }
     });
   }
 
@@ -639,7 +663,10 @@ Views.pos = (() => {
     if (!existing && !cart.lines.length) return;
     const t = existing ? { total: existing.total, cups: existing.cups } : cartTotals();
     const ex = existing ? { delivery: 0, packaging: 0 } : cartExtras();
-    let method = st().payMethods[0] || 'Cash';
+    const compVal = existing ? U.n(existing.comp) : U.n(t.comp);
+    const compFor = existing ? existing.compReason : cart.compReason;
+    const allFree = t.total === 0 && compVal > 0;
+    let method = allFree ? 'Complimentary' : (st().payMethods[0] || 'Cash');
     const quick = [...new Set([t.total, Math.ceil(t.total / 100) * 100, Math.ceil(t.total / 500) * 500, 1000].filter((v) => v >= t.total))].slice(0, 4);
     const name0 = existing ? existing.customerName : cart.customerName;
     const phone0 = existing ? existing.customerPhone : cart.customerPhone;
@@ -648,7 +675,8 @@ Views.pos = (() => {
     body.innerHTML = `
       ${existing ? `<div class="banner warn">👩‍🍳 Kitchen copy for <b>#${existing.no}</b> was printed at ${U.fmtTime(existing.kitchenAt || existing.at)}. Take the payment now.</div>` : ''}
       <div class="pay-total"><span>Total to pay</span><b>${U.money(t.total)}</b></div>
-      <div class="opt-group"><label>Payment</label>${U.seg('pm', st().payMethods, method)}</div>
+      ${allFree ? `<div class="banner info">🎁 Fully complimentary${compFor ? ` for <b>${U.esc(compFor)}</b>` : ''}: nothing to collect. It is saved as <b>Complimentary</b> so Reports show what it cost.</div>` : ''}
+      <div class="opt-group" id="pmBox" ${allFree ? 'hidden' : ''}><label>Payment</label>${U.seg('pm', st().payMethods, method)}</div>
       <div class="opt-group" id="cashBox"><label>Cash received</label>
         <input type="number" id="cashIn" min="0" placeholder="${t.total}" autofocus>
         <div class="chips mt">${quick.map((q) => `<button type="button" class="chip" data-cash="${q}">${q === t.total ? 'Exact ' : ''}${U.money(q)}</button>`).join('')}</div>
@@ -683,7 +711,7 @@ Views.pos = (() => {
       out.innerHTML = r >= t.total ? `Change to give: <b>${U.money(r - t.total)}</b>` : `<span class="err">Short by ${U.money(t.total - r)}</span>`;
     };
     const updateMethod = () => {
-      U.$('#cashBox', body).hidden = method !== 'Cash';
+      U.$('#cashBox', body).hidden = allFree || method !== 'Cash';
       U.$('#refBox', body).hidden = !/bkash|nagad|rocket|upay/i.test(method);
     };
     U.bindSeg(body, 'pm', (v) => { method = v; updateMethod(); });

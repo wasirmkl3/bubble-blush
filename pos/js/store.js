@@ -206,15 +206,31 @@ const Store = (() => {
       // Only drinks get the free topping (not "extra topping only" lines). One portion is free, even on a double.
       const tops = line.toppings || [];
       const paid = tops.map((t, i) => i).filter((i) => !tops[i].comp);
-      if (!active || api.isToppingLine(line) || !paid.length) return { amount: 0, index: -1 };
+      if (!active || api.isToppingLine(line) || line.compDrink || !paid.length) return { amount: 0, index: -1 };
       let index = paid[0];
       paid.forEach((i) => { if (U.n(tops[i].price) > U.n(tops[index].price)) index = i; });
       return { amount: U.n(tops[index].price), index };
     },
 
-    /* ---------- complimentary toppings (given free by staff: relative, favourite customer…) ---------- */
-    /* Per-cup value of the complimentary toppings on a line (a double portion is fully free). */
-    lineComp(line) { return U.sum((line.toppings || []).filter((t) => t.comp), (t) => U.n(t.price) * api.topQty(t)); },
+    /* ---------- complimentary (given free by staff: relative, favourite customer…) ---------- */
+    /* line.compDrink = the whole drink (with its toppings) is free; t.comp = only that topping is free. */
+    /* Per-cup menu value given free on a line (a double portion is fully free). */
+    lineComp(line) {
+      if (line.compDrink) return api.lineUnitPrice(line);
+      return U.sum((line.toppings || []).filter((t) => t.comp), (t) => U.n(t.price) * api.topQty(t));
+    },
+    /* Ingredient + packaging cost of what was given free on a line (all cups on the line). */
+    lineCompCost(line) {
+      if (line.compDrink) return api.lineCost(line);
+      return U.sum((line.toppings || []).filter((t) => t.comp), (t) => api.toppingCost(S.topping[t.id], t.flavourId || null) * api.topQty(t)) * U.n(line.qty);
+    },
+    /* Cost of the complimentary part of a saved order. Orders saved before this was recorded
+       are estimated from today's ingredient costs. */
+    orderCompCost(o) {
+      if (!o || !(o.comp > 0)) return 0;
+      if (o.compCost !== undefined) return U.n(o.compCost);
+      return U.round(U.sum(o.lines || [], (l) => api.lineCompCost(l)));
+    },
     /* What the customer pays per cup after the promotion and complimentary toppings. */
     lineNetUnit(line, promoOn = api.promoActive()) { return api.lineUnitPrice(line) - api.linePromo(line, promoOn).amount - api.lineComp(line); },
     /* Price that hits a target food-cost %, rounded up to the next ৳10. */
@@ -304,7 +320,8 @@ const Store = (() => {
           sizeName: topLine ? '' : api.sizeLabel(l.sizeId),
           basePrice: topLine ? 0 : l.basePrice,
           parcel: !!l.parcel,
-          toppings: (l.toppings || []).map((x) => ({ id: x.id, flavourId: x.flavourId || null, name: x.name, price: x.price, qty: api.topQty(x), ...(x.comp ? { comp: true } : {}) })),
+          ...(l.compDrink ? { compDrink: true } : {}),
+          toppings: (l.toppings || []).map((x) => ({ id: x.id, flavourId: x.flavourId || null, name: x.name, price: x.price, qty: api.topQty(x), ...(x.comp && !l.compDrink ? { comp: true } : {}) })),
           included: topLine ? [] : api.includedNames(S.item[l.itemId]),
           sugar: l.sugar || '',
           ice: l.ice || '',
@@ -313,12 +330,16 @@ const Store = (() => {
           unitPrice: api.lineUnitPrice(l),
           promo: pr.amount,          // per cup
           promoIndex: pr.index,      // which topping was free
-          comp: api.lineComp(l),     // per cup: complimentary toppings
+          comp: api.lineComp(l),     // per cup: complimentary drink / toppings (menu value)
+          compCost: U.round(api.lineCompCost(l)), // all cups: ingredient cost of what was given free
           lineGross: api.lineUnitPrice(l) * l.qty,
           lineTotal: (api.lineUnitPrice(l) - pr.amount - api.lineComp(l)) * l.qty,
           cost: U.round(api.lineCost(l)),
         };
       });
+      // Nothing to collect because everything was given free: record it as "Complimentary", not as cash.
+      const allFree = t.total === 0 && t.comp > 0;
+      const pm = allFree ? 'Complimentary' : (payMethod || 'Cash');
       const usage = {};
       lines.forEach((l) => api.lineUsage(l, usage));
       const order = {
@@ -337,6 +358,7 @@ const Store = (() => {
         promoName: t.promo ? (S.settings.promo?.name || 'Promotion') : '',
         comp: t.comp,
         compReason: t.comp ? String(compReason || '').trim() : '',
+        compCost: U.round(U.sum(orderLines, (l) => l.compCost)),
         discount: t.discount,
         discountInfo: discount && discount.value > 0 ? { ...discount } : null,
         vat: t.vat,
@@ -346,9 +368,9 @@ const Store = (() => {
         packagingCharge: t.packaging,
         total: t.total,
         cost: U.round(U.sum(orderLines, (l) => l.cost)),
-        payMethod: payLater ? '' : (payMethod || 'Cash'),
-        received: payLater ? 0 : payMethod === 'Cash' ? Math.max(U.n(received), t.total) : t.total,
-        change: !payLater && payMethod === 'Cash' ? Math.max(0, U.n(received) - t.total) : 0,
+        payMethod: payLater ? '' : pm,
+        received: payLater ? 0 : pm === 'Cash' ? Math.max(U.n(received), t.total) : t.total,
+        change: !payLater && pm === 'Cash' ? Math.max(0, U.n(received) - t.total) : 0,
         status: payLater ? 'unpaid' : 'paid',
         ready: false,
         usage,
@@ -400,7 +422,7 @@ const Store = (() => {
     /* Take payment for an order that was sent to the kitchen first. */
     async payOrder(order, { payMethod, received, ref, customerName, customerPhone }) {
       if (order.status !== 'unpaid') throw new Error(`Order #${order.no} is not waiting for payment`);
-      const pm = payMethod || 'Cash';
+      const pm = order.total === 0 && order.comp > 0 ? 'Complimentary' : (payMethod || 'Cash');
       order.status = 'paid';
       order.paidAt = new Date().toISOString();
       order.payMethod = pm;

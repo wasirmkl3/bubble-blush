@@ -72,10 +72,10 @@ Views.orders = (() => {
   function openOrder(o) {
     const lines = o.lines.map((l, i) => `<tr>
       <td>${l.qty}×</td>
-      <td><b>${U.esc(l.name)}</b>${l.sizeName ? ` (${U.esc(l.sizeName)})` : ' <span class="tag">no drink</span>'}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}
+      <td><b>${U.esc(l.name)}</b>${l.sizeName ? ` (${U.esc(l.sizeName)})` : ' <span class="tag">no drink</span>'}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}
         <div class="muted small">${[l.sugar && 'Sugar ' + l.sugar, l.ice].filter(Boolean).map(U.esc).join(' · ')}
         ${(l.included || []).length ? '<br>Included: ' + l.included.map(U.esc).join(', ') : ''}
-        ${l.toppings.length ? '<br>' + l.toppings.map((t, k) => `+ ${U.esc(Store.topName(t))} ${U.money(t.price * Store.topQty(t))}${t.comp ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}${l.promo && k === l.promoIndex ? ' <b class="free-tag">FREE</b>' : ''}`).join('<br>') : ''}${l.note ? '<br>✎ ' + U.esc(l.note) : ''}</div></td>
+        ${l.toppings.length ? '<br>' + l.toppings.map((t, k) => `+ ${U.esc(Store.topName(t))} ${U.money(t.price * Store.topQty(t))}${t.comp && !l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}${l.promo && k === l.promoIndex ? ' <b class="free-tag">FREE</b>' : ''}`).join('<br>') : ''}${l.note ? '<br>✎ ' + U.esc(l.note) : ''}</div></td>
       <td class="r">${U.money(l.lineTotal)}</td>
       <td><button class="btn sm ghost" data-sticker="${i}" ${Store.isToppingLine(l) ? 'hidden' : ''} title="Reprint stickers for this drink">🏷</button></td></tr>`).join('');
     const margin = o.total ? (o.total - o.cost) / o.total : 0;
@@ -100,6 +100,7 @@ Views.orders = (() => {
           <div class="tot-row grand"><span>Total</span><span>${U.money(o.total)}</span></div>
           ${o.status !== 'unpaid' && o.payMethod === 'Cash' ? `<div class="tot-row muted"><span>Received / change</span><span>${U.money(o.received)} / ${U.money(o.change)}</span></div>` : ''}
           <div class="tot-row muted"><span>Ingredient cost (est.)</span><span>${U.money(o.cost)} · margin ${U.pct(margin)}</span></div>
+          ${o.comp ? `<div class="tot-row muted"><span>&nbsp;&nbsp;of which complimentary</span><span>${U.money(Store.orderCompCost(o))}</span></div>` : ''}
         </div>`,
       actions: [
         ...(o.status !== 'void' ? [{ label: 'Void order', cls: 'danger', left: true, onClick: () => voidFlow(o) }] : []),
