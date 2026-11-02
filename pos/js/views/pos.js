@@ -9,7 +9,7 @@ Views.pos = (() => {
   let printPrefs = null;
 
   function emptyCart() {
-    return { lines: [], discount: null, orderType: null, customerName: '', customerPhone: '', note: '', deliveryCharge: 0, packagingCharge: 0 };
+    return { lines: [], discount: null, orderType: null, customerName: '', customerPhone: '', note: '', deliveryCharge: 0, packagingCharge: 0, compReason: '' };
   }
   const isDelivery = () => /deliver/i.test(cart.orderType || '');
   const anyParcel = () => cart.lines.some((l) => l.parcel);
@@ -35,6 +35,21 @@ Views.pos = (() => {
   const sugarLabel = (v) => { const l = st().sugarLabels?.[v]; return l ? `${v} · ${l}` : v; };
   const topKey = (t) => `${t.id}|${t.flavourId || ''}`;
   const topPrice = (t) => U.n(t.price) * Store.topQty(t);
+  const quickNotes = () => (st().quickNotes || []).filter(Boolean);
+  /* Tap a quick note to add it to the note box; tap again to take it out. */
+  const toggleNote = (text, chip) => {
+    const parts = String(text || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const i = parts.findIndex((x) => x.toLowerCase() === chip.toLowerCase());
+    if (i >= 0) parts.splice(i, 1); else parts.push(chip);
+    return parts.join(', ');
+  };
+  const noteChipsHTML = (note) => quickNotes().length ? `<div class="chips mt note-chips">${quickNotes().map((q) => {
+    const on = String(note || '').split(',').some((x) => x.trim().toLowerCase() === q.toLowerCase());
+    return `<button type="button" class="chip ${on ? 'on' : ''}" data-qn="${U.esc(q)}">${U.esc(q)}</button>`;
+  }).join('')}</div>` : '';
+  const paintNoteChips = (box, note) => U.$$('[data-qn]', box).forEach((b) => {
+    b.classList.toggle('on', String(note || '').split(',').some((x) => x.trim().toLowerCase() === b.dataset.qn.toLowerCase()));
+  });
 
   /* ---------- layout ---------- */
   function render(el) {
@@ -112,7 +127,7 @@ Views.pos = (() => {
       return `<button class="item-card ${i.active ? '' : 'off'}" data-id="${i.id}" style="--c:${U.color(c?.color)}" ${i.active ? '' : 'disabled'}>
         <span class="ic-name">${U.esc(i.name)}</span>
         ${i.isNew ? '<span class="ic-badge new">✨ NEW</span>' : ''}
-        ${i.badge ? `<span class="ic-badge">★ ${U.esc(i.badge)}</span>` : ''}
+        ${i.badge ? `<span class="ic-badge">${U.esc(Store.badgeText(i.badge))}</span>` : ''}
         <span class="ic-desc">${U.esc(i.desc || (Store.includedNames(i).length ? 'Includes ' + Store.includedNames(i).join(', ') : ''))}</span>
         <span class="ic-price">${priceRange(i)}</span>
         ${!i.active ? '<span class="ic-flag">Sold out</span>' : missing.length ? `<span class="ic-flag warn" title="Low: ${U.esc(missing.join(', '))}">Check stock</span>` : ''}
@@ -149,7 +164,7 @@ Views.pos = (() => {
     body.className = 'opt';
     body.innerHTML = `
       ${topOnly ? '<p class="muted">For toppings without a drink, e.g. the customer wants extra topping after the bill or after the drink was given. Pick the toppings; tap <b>×2</b> for a double portion.</p>' : ''}
-      ${item?.badge ? `<span class="ic-badge big">★ ${U.esc(item.badge)}</span>` : ''}
+      ${item?.badge ? `<span class="ic-badge big">${U.esc(Store.badgeText(item.badge))}</span>` : ''}
       ${item?.desc ? `<p class="muted">${U.esc(item.desc)}</p>` : ''}
       ${included.length ? `<p class="incl">✓ Included: <b>${included.map(U.esc).join(', ')}</b> <small class="muted">(no extra charge)</small></p>` : ''}
       ${topOnly ? '' : `<div class="opt-group"><label>Size <span class="req" id="sizeReq">${line.sizeId ? '' : '· choose one'}</span></label><div class="size-row">${sizes.map((s, k) => {
@@ -167,8 +182,9 @@ Views.pos = (() => {
             <button type="button" class="top-btn ${has(t.id, f.id) ? 'on' : ''}" data-top="${t.id}" data-fl="${f.id}">${U.esc(f.name)}</button>`).join('')}</div>`).join('')}
       </div>` : ''}
       <div class="opt-sum" id="optSum"></div>
+      ${showTops && tops.length ? '<p class="muted small comp-hint" id="compHint" hidden>Tap <b>🎁</b> on a topping to give it <b>complimentary</b> (free), e.g. for a relative or a favourite customer.</p>' : ''}
       <div class="opt-group two">
-        <div><label>Note</label><input type="text" id="optNote" placeholder="${topOnly ? 'e.g. for order #12' : 'e.g. no pearls, extra cold'}" value="${U.esc(line.note)}"></div>
+        <div><label>Side note for this item <small class="muted">(printed on the bill, kitchen copy and sticker)</small></label><input type="text" id="optNote" placeholder="${topOnly ? 'e.g. for order #12' : 'e.g. no pearls, extra cold'}" value="${U.esc(line.note)}">${noteChipsHTML(line.note)}</div>
         <div><label>Qty</label><div class="stepper"><button type="button" data-q="-1">−</button><input id="optQty" type="number" min="1" value="${line.qty}"><button type="button" data-q="1">+</button></div></div>
       </div>
       <label class="check parcel-check"><input type="checkbox" id="optParcel" ${line.parcel ? 'checked' : ''}> 🥡 <b>Parcel</b> <small class="muted">(pack this item to take away; shows on the bill and kitchen copy)</small></label>`;
@@ -186,19 +202,24 @@ Views.pos = (() => {
     const refresh = () => {
       line.qty = Math.max(1, parseInt(U.$('#optQty', body).value, 10) || 1);
       const pr = Store.linePromo(line, promoOn);
-      const net = (Store.lineUnitPrice(line) - pr.amount) * line.qty;
+      const net = Store.lineNetUnit(line, promoOn) * line.qty;
+      const ch = U.$('#compHint', body);
+      if (ch) ch.hidden = !line.toppings.length;
       if (!topOnly) U.$('#sizeReq', body).textContent = line.sizeId ? '' : '· choose one';
       const tr = U.$('#topReq', body);
       if (tr) tr.textContent = topOnly && !line.toppings.length ? '· choose at least one' : '';
       addBtn.disabled = !ready();
       addBtn.textContent = !ready() ? (topOnly ? 'Choose a topping first' : 'Choose a size first') : `${existing ? 'Update' : 'Add to order'} — ${U.money(net)}`;
-      // Selected toppings: tap ×2 to make it a double portion (double price, double stock).
+      // Selected toppings: tap ×2 to make it a double portion (double price, double stock),
+      // 🎁 to make it complimentary (free, still taken from stock).
       U.$('#optSum', body).innerHTML = line.toppings.map((t, i) => {
         const free = i === pr.index && pr.amount;
         const dbl = Store.topQty(t) > 1;
-        return `<span class="sum-top ${free ? 'free' : ''} ${dbl ? 'dbl' : ''}">+ ${U.esc(t.name)}${dbl ? ' ×2' : ''}
-          ${free ? `<s>${U.money(topPrice(t))}</s> ${dbl ? U.money(t.price) : 'FREE'}` : U.money(topPrice(t))}
-          <button type="button" class="dbl-btn ${dbl ? 'on' : ''}" data-dbl="${i}" title="${dbl ? 'Back to single portion' : 'Double portion'}">×2</button></span>`;
+        const comp = !!t.comp;
+        return `<span class="sum-top ${free ? 'free' : ''} ${dbl ? 'dbl' : ''} ${comp ? 'comp' : ''}">+ ${U.esc(t.name)}${dbl ? ' ×2' : ''}
+          ${comp ? `<s>${U.money(topPrice(t))}</s> COMPLIMENTARY` : free ? `<s>${U.money(topPrice(t))}</s> ${dbl ? U.money(t.price) : 'FREE'}` : U.money(topPrice(t))}
+          <button type="button" class="dbl-btn ${dbl ? 'on' : ''}" data-dbl="${i}" title="${dbl ? 'Back to single portion' : 'Double portion'}">×2</button>
+          <button type="button" class="comp-btn ${comp ? 'on' : ''}" data-comp="${i}" title="${comp ? 'Charge this topping again' : 'Complimentary: give this topping free'}">🎁</button></span>`;
       }).join('');
     };
     const pickSize = (sizeId) => {
@@ -214,6 +235,20 @@ Views.pos = (() => {
         const t = line.toppings[Number(db.dataset.dbl)];
         if (t) t.qty = Store.topQty(t) > 1 ? 1 : 2;
         refresh();
+        return;
+      }
+      const cb = e.target.closest('[data-comp]');
+      if (cb) {
+        const t = line.toppings[Number(cb.dataset.comp)];
+        if (t) { if (t.comp) delete t.comp; else t.comp = true; }
+        refresh();
+        return;
+      }
+      const qn = e.target.closest('[data-qn]');
+      if (qn) {
+        const ni = U.$('#optNote', body);
+        ni.value = toggleNote(ni.value, qn.dataset.qn);
+        paintNoteChips(body, ni.value);
         return;
       }
       const sb = e.target.closest('[data-size]');
@@ -233,6 +268,7 @@ Views.pos = (() => {
       refresh();
     });
     U.$('#optQty', body).addEventListener('input', refresh);
+    U.$('#optNote', body).addEventListener('input', (e) => paintNoteChips(body, e.target.value));
     U.$('#optParcel', body).addEventListener('change', (e) => { line.parcel = e.target.checked; });
     U.bindSeg(body, 'sugar', (v) => { line.sugar = v; });
     U.bindSeg(body, 'ice', (v) => { line.ice = v; });
@@ -264,7 +300,7 @@ Views.pos = (() => {
       else {
         // merge identical lines
         const key = (l) => JSON.stringify([l.kind || 'drink', l.itemId, l.sizeId, l.sugar, l.ice, l.note, !!l.parcel,
-          l.toppings.map((x) => `${topKey(x)}|${Store.topQty(x)}`).sort()]);
+          l.toppings.map((x) => `${topKey(x)}|${Store.topQty(x)}|${x.comp ? 'comp' : ''}`).sort()]);
         const same = cart.lines.find((l) => key(l) === key(line));
         if (same) same.qty += line.qty; else cart.lines.push(line);
       }
@@ -296,13 +332,16 @@ Views.pos = (() => {
             <div class="cl-name">${U.esc(l.name)} ${topLine ? '<span class="tag">no drink</span>' : `<span class="tag">${U.esc(Store.sizeLabel(l.sizeId))}</span>`}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}</div>
             ${opts ? `<div class="cl-sub">${U.esc(opts)}</div>` : ''}
             ${incl.length ? `<div class="cl-sub">Included: ${incl.map(U.esc).join(', ')}</div>` : ''}
-            ${l.toppings.map((x, k) => `<div class="cl-sub">+ ${U.esc(Store.topName(x))} ${U.money(topPrice(x))}${k === pr.index && pr.amount ? ' <b class="free-tag">FREE</b>' : ''}</div>`).join('')}
+            ${l.toppings.map((x, k) => `<div class="cl-sub">+ ${U.esc(Store.topName(x))} ${x.comp ? `<s>${U.money(topPrice(x))}</s> <b class="comp-tag">🎁 COMPLIMENTARY</b>` : U.money(topPrice(x))}${k === pr.index && pr.amount ? ' <b class="free-tag">FREE</b>' : ''}</div>`).join('')}
             ${l.note ? `<div class="cl-sub note">✎ ${U.esc(l.note)}</div>` : ''}
           </div>
           <div class="cl-side">
-            <div class="cl-price">${pr.amount ? `<s class="muted">${U.money(Store.lineUnitPrice(l) * l.qty)}</s> ` : ''}${U.money((Store.lineUnitPrice(l) - pr.amount) * l.qty)}</div>
+            <div class="cl-price">${pr.amount || Store.lineComp(l) ? `<s class="muted">${U.money(Store.lineUnitPrice(l) * l.qty)}</s> ` : ''}${U.money(Store.lineNetUnit(l) * l.qty)}</div>
             <div class="stepper sm"><button data-dq="-1" data-i="${i}">−</button><span>${l.qty}</span><button data-dq="1" data-i="${i}">+</button></div>
-            <button class="parcel-btn ${l.parcel ? 'on' : ''}" data-parcel="${i}" title="${l.parcel ? 'Parcel: tap to remove' : 'Mark this item as parcel'}">🥡 ${l.parcel ? 'Parcel' : 'Parcel?'}</button>
+            <div class="cl-btns">
+              <button class="parcel-btn note-btn ${l.note ? 'on' : ''}" data-lnote="${i}" title="${l.note ? 'Edit the side note for this item' : 'Add a side note for this item'}">✎ ${l.note ? 'Note' : 'Note?'}</button>
+              <button class="parcel-btn ${l.parcel ? 'on' : ''}" data-parcel="${i}" title="${l.parcel ? 'Parcel: tap to remove' : 'Mark this item as parcel'}">🥡 ${l.parcel ? 'Parcel' : 'Parcel?'}</button>
+            </div>
           </div>
         </div>`;
       }).join('') : `<div class="cart-empty"><img src="assets/icon.png" alt=""><p>Tap a drink to start an order</p></div>`}</div>
@@ -310,6 +349,7 @@ Views.pos = (() => {
         <div class="cart-actions">
           <button class="btn sm ghost" id="cartDisc" ${cart.lines.length ? '' : 'disabled'}>🏷 ${cart.discount ? 'Edit discount' : 'Discount'}</button>
           <button class="btn sm ghost" id="cartNote">✎ ${cart.note ? 'Edit note' : 'Order note'}</button>
+          <button class="btn sm ghost" id="cartComp" ${cart.lines.length ? '' : 'disabled'} title="Give toppings free, e.g. for a relative or a favourite customer">🎁 Complimentary</button>
         </div>
         ${isDelivery() || anyParcel() ? `<div class="charges">
           ${isDelivery() ? `<label>🛵 Delivery charge ৳ <input type="number" min="0" step="1" id="chDelivery" value="${U.n(cart.deliveryCharge) || ''}" placeholder="0"></label>` : ''}
@@ -329,6 +369,10 @@ Views.pos = (() => {
     onCharge('#chDelivery', 'deliveryCharge');
     onCharge('#chPack', 'packagingCharge');
     box.onclick = async (e) => {
+      const ln = e.target.closest('[data-lnote]');
+      if (ln) { openLineNote(Number(ln.dataset.lnote)); return; }
+      const cr = e.target.closest('[data-act="compreason"]');
+      if (cr) { openComp(); return; }
       const pc = e.target.closest('[data-parcel]');
       if (pc) {
         const l = cart.lines[Number(pc.dataset.parcel)];
@@ -359,6 +403,7 @@ Views.pos = (() => {
       if (await U.confirm('Clear this order?', { ok: 'Clear', danger: true })) { resetCart(); }
     };
     U.$('#cartDisc', box).onclick = openDiscount;
+    U.$('#cartComp', box).onclick = openComp;
     U.$('#cartNote', box).onclick = () => {
       U.modal({
         title: 'Order note',
@@ -375,6 +420,7 @@ Views.pos = (() => {
     const t = cartTotals();
     U.$('#cartTotals', box).innerHTML = `
       <div class="tot-row"><span>Subtotal (${t.cups} cup${t.cups === 1 ? '' : 's'})</span><span>${U.money(t.subtotal)}</span></div>
+      ${t.comp ? `<div class="tot-row disc"><span>🎁 Complimentary <button type="button" class="link-btn" data-act="compreason">${cart.compReason ? '· ' + U.esc(cart.compReason) : '· add reason'}</button></span><span>-${U.money(t.comp)}</span></div>` : ''}
       ${t.promo ? `<div class="tot-row disc"><span>🎁 ${U.esc(st().promo.name)}</span><span>-${U.money(t.promo)}</span></div>` : ''}
       ${t.discount ? `<div class="tot-row disc"><span>Discount${cart.discount.type === 'pct' ? ` ${cart.discount.value}%` : ''}${cart.discount.reason ? ' · ' + U.esc(cart.discount.reason) : ''}</span><span>-${U.money(t.discount)}</span></div>` : ''}
       ${t.vat ? `<div class="tot-row"><span>VAT ${st().vatPct}%${st().vatMode === 'inclusive' ? ' (incl.)' : ''}</span><span>${U.money(t.vat)}</span></div>` : ''}
@@ -485,6 +531,72 @@ Views.pos = (() => {
     });
     info();
     setTimeout(() => f.nameIn.focus(), 30);
+  }
+
+  /* Side note for one item, straight from the cart. */
+  function openLineNote(i) {
+    const l = cart.lines[i];
+    if (!l) return;
+    const body = document.createElement('div');
+    body.innerHTML = `<p class="muted small">${U.esc(l.qty + ' × ' + l.name)}${Store.isToppingLine(l) ? '' : ' (' + U.esc(Store.sizeLabel(l.sizeId)) + ')'}: printed on the bill, kitchen copy and cup sticker.</p>
+      <input type="text" id="lnText" value="${U.esc(l.note || '')}" placeholder="e.g. no pearls, extra cold" autofocus>${noteChipsHTML(l.note)}`;
+    const save = (note) => { l.note = String(note || '').trim(); saveCart(); renderCart(); };
+    const md = U.modal({
+      title: '✎ Side note',
+      body,
+      actions: [
+        ...(l.note ? [{ label: 'Remove', cls: 'danger', left: true, onClick: () => save('') }] : []),
+        { label: 'Cancel' },
+        { label: 'Save', cls: 'primary', onClick: () => save(U.$('#lnText', body).value) },
+      ],
+    });
+    const inp = U.$('#lnText', body);
+    inp.addEventListener('input', () => paintNoteChips(body, inp.value));
+    body.addEventListener('click', (e) => {
+      const q = e.target.closest('[data-qn]');
+      if (!q) return;
+      inp.value = toggleNote(inp.value, q.dataset.qn);
+      paintNoteChips(body, inp.value);
+    });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); md.el.querySelector('.modal-actions .primary').click(); } });
+  }
+
+  /* Complimentary toppings: tick the toppings to give free and pick who it is for. */
+  function openComp() {
+    const rows = [];
+    cart.lines.forEach((l, li) => (l.toppings || []).forEach((t, ti) => rows.push({ l, li, t, ti })));
+    const reasons = (st().compReasons || []).filter(Boolean);
+    const body = document.createElement('div');
+    body.innerHTML = rows.length ? `
+      <p class="muted small">Ticked toppings are free for the customer. Stock is still taken, and Reports show the total given away.
+        A line with qty 2 or more is free for every cup on that line.</p>
+      <div class="comp-list">${rows.map((r, k) => `<label class="check comp-row"><input type="checkbox" data-ck="${k}" ${r.t.comp ? 'checked' : ''}>
+        <span><b>${U.esc(r.l.qty + ' × ' + r.l.name)}</b>${Store.isToppingLine(r.l) ? '' : ` <small class="muted">${U.esc(Store.sizeLabel(r.l.sizeId))}</small>`}<br>
+        + ${U.esc(Store.topName(r.t))} <small class="muted">${U.money(topPrice(r.t) * r.l.qty)}</small></span></label>`).join('')}</div>
+      <div class="opt-group mt"><label>Complimentary for</label>
+        <input type="text" id="compReason" value="${U.esc(cart.compReason || '')}" placeholder="Relative, favourite customer…">
+        ${reasons.length ? `<div class="chips mt">${reasons.map((r) => `<button type="button" class="chip" data-cr="${U.esc(r)}">${U.esc(r)}</button>`).join('')}</div>` : ''}</div>`
+      : `<p>No toppings in this order yet.</p><p class="muted">Tap the drink in the cart (or a new drink), add the topping, then tap <b>🎁</b> next to it, or come back here to tick it.</p>`;
+    U.modal({
+      title: '🎁 Complimentary toppings',
+      body,
+      wide: true,
+      actions: rows.length ? [
+        { label: 'Charge all', cls: 'danger', left: true, onClick: () => { rows.forEach((r) => delete r.t.comp); cart.compReason = ''; saveCart(); renderCart(); } },
+        { label: 'Cancel' },
+        { label: 'Apply', cls: 'primary', onClick: () => {
+          rows.forEach((r, k) => { if (U.$(`[data-ck="${k}"]`, body).checked) r.t.comp = true; else delete r.t.comp; });
+          const any = rows.some((r) => r.t.comp);
+          cart.compReason = any ? U.$('#compReason', body).value.trim() : '';
+          saveCart(); renderCart();
+          if (any) U.toast('Complimentary toppings applied');
+        } },
+      ] : [{ label: 'OK' }],
+    });
+    body.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-cr]');
+      if (c) U.$('#compReason', body).value = c.dataset.cr;
+    });
   }
 
   function openDiscount() {
@@ -630,6 +742,7 @@ Views.pos = (() => {
           orderType: cart.orderType,
           deliveryCharge: ex.delivery,
           packagingCharge: ex.packaging,
+          compReason: cart.compReason,
           customerName: U.$('#custName', body).value,
           customerPhone: phone.value,
           payMethod: method,
@@ -688,6 +801,7 @@ Views.pos = (() => {
           orderType: cart.orderType,
           deliveryCharge: ex.delivery,
           packagingCharge: ex.packaging,
+          compReason: cart.compReason,
           customerName: U.$('#custName', body).value,
           customerPhone: phone.value,
           note: cart.note,

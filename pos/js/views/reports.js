@@ -35,6 +35,9 @@ Views.reports = (() => {
       discount: U.sum(paid, (o) => o.discount),
       promo: U.sum(paid, (o) => o.promo || 0),
       promoCups: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.promo ? l.qty : 0))),
+      comp: U.sum(paid, (o) => o.comp || 0),
+      compToppings: U.sum(paid, (o) => U.sum(o.lines, (l) => U.sum((l.toppings || []).filter((t) => t.comp), (t) => l.qty * Store.topQty(t)))),
+      compOrders: paid.filter((o) => o.comp > 0).length,
       vat: U.sum(paid, (o) => o.vat),
       collected: U.sum(paid, (o) => o.total),
       cogs: U.round(U.sum(paid, (o) => o.cost)),
@@ -209,6 +212,7 @@ Views.reports = (() => {
           ${r.cups ? `<p class="muted small mt">${U.pct(U.sum(r.toppings, (t) => t.qty) / r.cups)} topping attach rate — suggest a topping with every order!</p>` : ''}</div>
         <div class="card"><h3>💰 Money summary</h3>
           <div class="tot-row"><span>Gross sales (menu price)</span><span>${U.money(r.gross)}</span></div>
+          ${r.comp ? `<div class="tot-row disc"><span>🎁 Complimentary (${r.compToppings} toppings, ${r.compOrders} orders)</span><span>-${U.money(r.comp)}</span></div>` : ''}
           ${r.promo ? `<div class="tot-row disc"><span>Promotion (${r.promoCups} free toppings)</span><span>-${U.money(r.promo)}</span></div>` : ''}
           <div class="tot-row disc"><span>Discounts (${r.discountedOrders} orders)</span><span>-${U.money(r.discount)}</span></div>
           ${r.vat ? `<div class="tot-row"><span>VAT collected</span><span>${U.money(r.vat)}</span></div>` : ''}
@@ -235,9 +239,9 @@ Views.reports = (() => {
 
     U.$('#rPrint', body).onclick = () => Print.dayReport({ ...r, title: single ? 'Daily summary' : 'Sales summary', range: single ? U.fmtDay(from) : `${from} to ${to}`, ...(close || {}), expectedCash: (close?.openingCash || 0) + r.cashSales - r.cashExpenses, countedCash: close ? close.countedCash : null });
     U.$('#rCsvO', body).onclick = () => U.download(`orders-${from}_to_${to}.csv`, U.toCSV([
-      ['Date', 'Time', 'Order #', 'Status', 'Type', 'Customer', 'Phone', 'Cups', 'Items', 'Subtotal', 'Discount', 'VAT', 'Total', 'Payment', 'Ingredient cost', 'Note'],
+      ['Date', 'Time', 'Order #', 'Status', 'Type', 'Customer', 'Phone', 'Cups', 'Items', 'Subtotal', 'Complimentary', 'Complimentary for', 'Discount', 'VAT', 'Total', 'Payment', 'Ingredient cost', 'Note'],
       ...data.orders.sort((a, b) => a.at.localeCompare(b.at)).map((o) => [o.dayKey, U.fmtTime(o.at), o.no, o.status, o.orderType, o.customerName, o.customerPhone, o.cups,
-        o.lines.map((l) => `${l.qty}x ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}${l.parcel ? ' [parcel]' : ''}`).join('; '), o.subtotal, o.discount, o.vat, o.total, o.payMethod, o.cost, o.note || '']),
+        o.lines.map((l) => `${l.qty}x ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}${l.parcel ? ' [parcel]' : ''}${l.note ? ` [note: ${l.note}]` : ''}`).join('; '), o.subtotal, o.comp || 0, o.compReason || '', o.discount, o.vat, o.total, o.payMethod, o.cost, o.note || '']),
     ]), 'text/csv');
     U.$('#rCsvI', body).onclick = () => U.download(`items-${from}_to_${to}.csv`, U.toCSV([
       ['Drink', 'Cups sold', 'Sales (BDT)', 'Ingredient cost (BDT)', 'Profit (BDT)'],

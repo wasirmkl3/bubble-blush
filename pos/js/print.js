@@ -104,6 +104,7 @@ const Print = (() => {
       .cols{columns:2;column-gap:10mm}
       .cat{break-inside:avoid;margin-bottom:6mm}
       .cat h2{display:flex;justify-content:space-between;align-items:flex-end;font-size:17px;color:#4E7F87;border-bottom:2px solid #A8C3C9;padding-bottom:1mm;margin-bottom:2mm;letter-spacing:.5px;text-transform:uppercase}
+      .cat .cd{font-size:10.5px;color:#6B7F72;font-style:italic;margin:-1mm 0 1.5mm}
       .cat h2 .sz{display:flex;gap:3mm;font-size:10px;color:#6B7F72;letter-spacing:0}
       .sz span,.pr span{width:13mm;text-align:center}
       .it{display:flex;justify-content:space-between;gap:4mm;padding:1.6mm 0;border-bottom:1px dotted #cfdfe3}
@@ -116,20 +117,21 @@ const Print = (() => {
       .tops b{color:#4E7F87}.ft{text-align:center;color:#6B7F72;font-size:11px;margin-top:6mm}
     </style></head><body>
       <div class="hd"><img src="assets/logo.png" alt=""><div class="tg">${e(st.tagline || '')}</div></div>
-      <div class="cols">${cats.map(({ c, items }) => `<div class="cat"><h2><span>${e(c.name)}</span><span class="sz">${sizes.map((z) => `<span>${e(z.name)}</span>`).join('')}</span></h2>${items.map((i) => {
+      <div class="cols">${cats.map(({ c, items }) => `<div class="cat"><h2><span>${e(c.name)}</span><span class="sz">${sizes.map((z) => `<span>${e(z.name)}</span>`).join('')}</span></h2>${c.desc ? `<div class="cd">${e(c.desc)}</div>` : ''}${items.map((i) => {
         const inc = Store.includedNames(i);
-        return `<div class="it"><div><div class="nm">${e(i.name)}${i.badge ? `<span class="bd">${e(i.badge)}</span>` : ''}</div>
-          ${i.desc ? `<div class="ds">${e(i.desc)}</div>` : ''}${inc.length ? `<div class="inc">Includes ${inc.map(e).join(', ')}</div>` : ''}</div>
+        return `<div class="it"><div><div class="nm">${e(i.name)}${i.badge ? `<span class="bd">${e(Store.badgeText(i.badge))}</span>` : ''}</div>
+          ${i.desc ? `<div class="ds">${e(i.desc)}</div>` : ''}${inc.length ? `<div class="inc">+ ${inc.map(e).join(' + ')} (included)</div>` : ''}</div>
           <div class="pr">${sizes.map((z) => { const x = i.sizes.find((y) => y.sizeId === z.id); return x ? `<span>${U.money(x.price)}</span>` : '<span class="na">—</span>'; }).join('')}</div></div>`;
       }).join('')}
       </div>`).join('')}
       ${tops.length ? `<div class="tops"><b>ADD TOPPINGS</b><br>${tops.map((t) => {
         const fl = (t.flavours || []).filter((f) => f.active !== false).map((f) => f.name);
-        return `${e(t.name)} <b>${U.money(t.price)}</b>${fl.length ? ` <span style="color:#6B7F72">(${fl.map(e).join(', ')})</span>` : ''}`;
-      }).join('<br>')}</div>` : ''}
-      ${sugar.length ? `<div class="tops"><b>MAKE IT YOURS</b> <span style="color:#6B7F72">(free)</span><br>Sugar: ${sugar.map(e).join(' · ')}<br>Ice: ${(st.iceLevels || []).map(e).join(' · ')}</div>` : ''}
+        return `${e(t.name)} <b>+${U.money(t.price)}</b>${fl.length ? ` <span style="color:#6B7F72">(${fl.map(e).join(', ')})</span>` : ''}`;
+      }).join('<br>')}<br><span style="color:#6B7F72;font-size:10.5px">Toppings listed beneath a drink are already included in its price. Additional toppings are charged separately.</span></div>` : ''}
+      ${sugar.length ? `<div class="tops"><b>MAKE IT YOURS</b> <span style="color:#6B7F72">(free)</span><br>Sugar: ${sugar.map(e).join(' · ')}<br>Ice: ${(st.iceLevels || []).map(e).join(' · ')}<br><span style="color:#6B7F72;font-size:10.5px">Customization options may vary for selected drinks.</span></div>` : ''}
       ${Store.promoActive() ? `<div class="tops" style="background:#FBF0D9"><b style="color:#9a7420">🎁 ${e(st.promo.name).toUpperCase()}</b><br>Any ONE topping free with every drink!</div>` : ''}
       </div>
+      ${Store.S.items.some((i) => i.active && i.badge) ? '<div class="ft">★ Signature · ♥ Our Favourite · ♥ People\'s Choice</div>' : ''}
       <div class="ft">${e(st.address || '')} ${st.phone ? '· ' + e(st.phone) : ''} ${st.social ? '· ' + e(st.social) : ''}</div>
     </body></html>`;
   }

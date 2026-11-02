@@ -97,7 +97,7 @@ Views.menu = (() => {
         return `<div class="card flush mb"><div class="card-title" style="--c:${U.color(c.color)}">${U.esc(c.name)}</div>
           <table class="tbl"><thead><tr><th>Drink</th>${sizes.map((s) => `<th class="r">${U.esc(s.name)}<br><small>price · cost · %</small></th>`).join('')}<th>On sale</th></tr></thead>
           <tbody>${items.map((i) => `<tr class="click ${i.active ? '' : 'void'}" data-id="${i.id}">
-            <td><b>${U.esc(i.name)}</b>${i.isNew ? ' <span class="ic-badge new">✨ NEW</span>' : ''}<br><small class="muted">${U.esc(i.desc || '')}</small></td>
+            <td><b>${U.esc(i.name)}</b>${i.badge ? ` <span class="ic-badge">${U.esc(Store.badgeText(i.badge))}</span>` : ''}${i.isNew ? ' <span class="ic-badge new">✨ NEW</span>' : ''}<br><small class="muted">${U.esc(i.desc || '')}</small></td>
             ${sizes.map((s) => {
               const sz = i.sizes.find((x) => x.sizeId === s.id);
               if (!sz) return '<td class="r muted">—</td>';
@@ -139,7 +139,7 @@ Views.menu = (() => {
         <div><label>Drink name</label><input type="text" id="iName" value="${U.esc(it.name)}" autofocus></div>
         <div><label>Category</label><select id="iCat">${Store.S.categories.map((c) => `<option value="${c.id}" ${c.id === it.catId ? 'selected' : ''}>${U.esc(c.name)}</option>`).join('')}</select></div>
         <div class="span2"><label>Short description (shown on menu)</label><input type="text" id="iDesc" value="${U.esc(it.desc || '')}"></div>
-        <div><label>Label (e.g. Our Signature)</label><input type="text" id="iBadge" value="${U.esc(it.badge || '')}"></div>
+        <div><label>Label: Signature (★), Our Favourite or People's Choice (♥)</label><input type="text" id="iBadge" value="${U.esc(it.badge || '')}"></div>
         <div><label>Included toppings (free, part of the drink)</label><div class="checks">${Store.S.toppings.map((t) => `
           <label class="check"><input type="checkbox" data-inc="${t.id}" ${(it.included || []).includes(t.id) ? 'checked' : ''}> ${U.esc(t.name)}</label>`).join('')}</div>
           <small class="muted">Also put its ingredient in the recipe below so stock is deducted.</small></div>
@@ -342,7 +342,7 @@ Views.menu = (() => {
       <div class="card flush"><table class="tbl"><thead><tr><th>Order</th><th>Category</th><th>Drinks</th><th></th></tr></thead>
       <tbody>${Store.S.categories.map((c, i) => `<tr data-id="${c.id}">
         <td><button class="icon-btn" data-up="${i}" ${i ? '' : 'disabled'}>▲</button><button class="icon-btn" data-down="${i}" ${i < Store.S.categories.length - 1 ? '' : 'disabled'}>▼</button></td>
-        <td><span class="dot" style="background:${U.color(c.color)}"></span> <b>${U.esc(c.name)}</b></td>
+        <td><span class="dot" style="background:${U.color(c.color)}"></span> <b>${U.esc(c.name)}</b>${c.desc ? `<br><small class="muted">${U.esc(c.desc)}</small>` : ''}</td>
         <td>${Store.S.items.filter((x) => x.catId === c.id).length}</td>
         <td class="r"><button class="btn sm ghost" data-edit="${c.id}">Edit</button></td></tr>`).join('')}</tbody></table></div>`;
     U.$('#addCat', body).onclick = () => editCategory(null);
@@ -368,7 +368,8 @@ Views.menu = (() => {
     U.modal({
       title: isNew ? 'New category' : `Edit: ${cat.name}`,
       body: `<div class="form-grid"><div><label>Name</label><input type="text" id="cName" value="${U.esc(cat.name)}" autofocus></div>
-        <div><label>Colour</label><input type="color" id="cColor" value="${U.color(cat.color)}"></div></div>`,
+        <div><label>Colour</label><input type="color" id="cColor" value="${U.color(cat.color)}"></div>
+        <div class="span2"><label>Description (printed on the menu card)</label><input type="text" id="cDesc" value="${U.esc(cat.desc || '')}"></div></div>`,
       actions: [
         ...(!isNew ? [{ label: 'Delete', cls: 'danger', left: true, onClick: async () => {
           if (Store.S.items.some((i) => i.catId === cat.id)) { U.toast('Move or delete the drinks in this category first', 'err'); return false; }
@@ -379,6 +380,7 @@ Views.menu = (() => {
           cat.name = U.$('#cName', m.el).value.trim();
           if (!cat.name) { U.toast('Enter a name', 'err'); return false; }
           cat.color = U.$('#cColor', m.el).value;
+          cat.desc = U.$('#cDesc', m.el).value.trim();
           await Store.save('categories', cat); draw(); return true;
         } },
       ],

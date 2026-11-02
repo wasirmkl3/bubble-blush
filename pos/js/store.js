@@ -80,6 +80,44 @@ const Store = (() => {
     localStorage.removeItem('bb-cart');
   }
 
+  /* v6 (November 2026 menu): new categories and drinks, new labels and descriptions, included
+     toppings. Updates in place: on/off switches, ingredient stock & costs, and recipes the owner
+     changed are kept. New ingredients start at 0 stock (enter them with + Purchase). */
+  async function migrateMenuV6() {
+    const d = Seed.build(api.businessDay());
+    const [cats, items, tops, ings] = await Promise.all([DB.all('categories'), DB.all('items'), DB.all('toppings'), DB.all('ingredients')]);
+    const cat = byId(cats); const item = byId(items); const top = byId(tops); const ing = byId(ings);
+    const key = (rec) => JSON.stringify((rec || []).map((r) => [r.ingId, U.round(U.n(r.qty), 1)]).sort((a, b) => a[0].localeCompare(b[0])));
+    const seedCats = new Set(d.categories.map((c) => c.id));
+    const seedItems = new Set(d.items.map((i) => i.id));
+    const seedTops = new Set(d.toppings.map((t) => t.id));
+    await DB.transact(['categories', 'items', 'toppings', 'ingredients'], (o) => {
+      d.ingredients.forEach((x) => { if (!ing[x.id]) o.ingredients.put({ ...x, stock: 0 }); });
+      d.toppings.forEach((t) => o.toppings.put(top[t.id] ? { ...top[t.id], sort: t.sort } : t));
+      tops.filter((t) => !seedTops.has(t.id)).forEach((t, i) => o.toppings.put({ ...t, sort: d.toppings.length + i }));
+      d.categories.forEach((c) => o.categories.put(cat[c.id] ? { ...cat[c.id], name: c.name, desc: c.desc, sort: c.sort } : c));
+      cats.filter((c) => !seedCats.has(c.id)).forEach((c, i) => o.categories.put({ ...c, sort: d.categories.length + i }));
+      d.items.forEach((it) => {
+        const old = item[it.id];
+        if (!old) { o.items.put({ ...it, isNew: true }); return; }
+        const sizes = it.sizes.map((z) => {
+          const os = (old.sizes || []).find((x) => x.sizeId === z.sizeId);
+          const prev = Seed.previousRecipe(it.id, z.sizeId);
+          const keepOwn = os && (os.recipe || []).length && !(prev && key(os.recipe) === key(prev));
+          return { sizeId: z.sizeId, price: z.price, recipe: keepOwn ? os.recipe : z.recipe };
+        });
+        o.items.put({ ...old, catId: it.catId, name: it.name, desc: it.desc, badge: it.badge, included: it.included, sort: it.sort, sizes });
+      });
+      items.filter((i) => !seedItems.has(i.id)).forEach((i, k) => o.items.put({ ...i, sort: d.items.length + k }));
+    });
+    const st = S.settings;
+    const patch = { schema: 6 };
+    if (!st.address || st.address === 'Khulna, Bangladesh') patch.address = Seed.SETTINGS.address;
+    if (!st.social || st.social === 'facebook.com/bubbleblush') patch.social = Seed.SETTINGS.social;
+    await loadAll();
+    await api.saveSettings(patch);
+  }
+
   const api = {
     S,
     async init() {
@@ -107,6 +145,8 @@ const Store = (() => {
       if ((saved.schema || 1) < 5) {
         await api.saveSettings({ schema: 5, promo: { ...(S.settings.promo || {}), enabled: false }, printStickerDefault: false });
       }
+      // v6: November 2026 menu (6 series, 17 drinks).
+      if ((saved.schema || 1) < 6) await migrateMenuV6();
     },
     reload: loadAll,
     onChange(fn) { S.listeners.push(fn); },
@@ -148,6 +188,9 @@ const Store = (() => {
       return f && f.recipe && f.recipe.length ? f.recipe : (t.recipe || []);
     },
     toppingCost(t, flavourId) { return api.recipeCost(api.toppingRecipe(t, flavourId)); },
+    /* Menu labels: "Our Favourite" / "People's Choice" get ♥, anything else (Signature…) gets ★. */
+    badgeIcon(badge) { return /favou?rite|choice|love/i.test(badge || '') ? '♥' : '★'; },
+    badgeText(badge) { return badge ? `${api.badgeIcon(badge)} ${badge}` : ''; },
     includedNames(item) { return (item?.included || []).map((id) => S.topping[id]?.name).filter(Boolean); },
     /* Included toppings for an order line: saved on the order, or (older orders) from the drink's current setup. */
     lineIncluded(l) { return (l.included && l.included.length) ? l.included : api.includedNames(S.item[l.itemId]); },
@@ -157,14 +200,23 @@ const Store = (() => {
       const p = S.settings.promo || {};
       return !!(p.enabled && p.from && p.to && day >= p.from && day <= p.to);
     },
-    /* Per-cup discount: the most expensive topping the customer added (included toppings are never charged). */
+    /* Per-cup discount: the most expensive topping the customer added (included toppings are never charged).
+       Complimentary toppings are already free, so the promotion picks from the others. */
     linePromo(line, active = api.promoActive()) {
       // Only drinks get the free topping (not "extra topping only" lines). One portion is free, even on a double.
-      if (!active || api.isToppingLine(line) || !(line.toppings || []).length) return { amount: 0, index: -1 };
-      let index = 0;
-      line.toppings.forEach((t, i) => { if (U.n(t.price) > U.n(line.toppings[index].price)) index = i; });
-      return { amount: U.n(line.toppings[index].price), index };
+      const tops = line.toppings || [];
+      const paid = tops.map((t, i) => i).filter((i) => !tops[i].comp);
+      if (!active || api.isToppingLine(line) || !paid.length) return { amount: 0, index: -1 };
+      let index = paid[0];
+      paid.forEach((i) => { if (U.n(tops[i].price) > U.n(tops[index].price)) index = i; });
+      return { amount: U.n(tops[index].price), index };
     },
+
+    /* ---------- complimentary toppings (given free by staff: relative, favourite customer…) ---------- */
+    /* Per-cup value of the complimentary toppings on a line (a double portion is fully free). */
+    lineComp(line) { return U.sum((line.toppings || []).filter((t) => t.comp), (t) => U.n(t.price) * api.topQty(t)); },
+    /* What the customer pays per cup after the promotion and complimentary toppings. */
+    lineNetUnit(line, promoOn = api.promoActive()) { return api.lineUnitPrice(line) - api.linePromo(line, promoOn).amount - api.lineComp(line); },
     /* Price that hits a target food-cost %, rounded up to the next ৳10. */
     suggestPrice(cost, target = 0.3) { return cost > 0 ? Math.ceil(cost / target / 10) * 10 : 0; },
     /* A topping on a line can be single (1) or double (2) portion. */
@@ -206,7 +258,8 @@ const Store = (() => {
       const packaging = Math.max(0, Math.round(U.n(extras?.packaging)));
       const subtotal = U.sum(lines, (l) => api.lineUnitPrice(l) * l.qty);
       const promo = U.sum(lines, (l) => api.linePromo(l, promoOn).amount * l.qty);
-      const afterPromo = subtotal - promo;
+      const comp = U.sum(lines, (l) => api.lineComp(l) * l.qty);
+      const afterPromo = subtotal - comp - promo;
       let discAmt = 0;
       if (discount && discount.value > 0) {
         discAmt = discount.type === 'pct' ? afterPromo * discount.value / 100 : discount.value;
@@ -221,7 +274,7 @@ const Store = (() => {
         else { vat = Math.round(afterDisc * pct / 100); total = afterDisc + vat; }
       }
       return {
-        subtotal, promo, discount: discAmt, vat, delivery, packaging,
+        subtotal, promo, comp, discount: discAmt, vat, delivery, packaging,
         total: Math.round(total) + delivery + packaging,
         cups: U.sum(lines, (l) => api.lineCups(l)),
       };
@@ -234,7 +287,7 @@ const Store = (() => {
     },
 
     /* payLater: the drinks go to the kitchen now, payment is taken later (status 'unpaid'). */
-    async placeOrder({ lines, discount, orderType, customerName, customerPhone, payMethod, received, note, payLater = false, deliveryCharge = 0, packagingCharge = 0 }) {
+    async placeOrder({ lines, discount, orderType, customerName, customerPhone, payMethod, received, note, payLater = false, deliveryCharge = 0, packagingCharge = 0, compReason = '' }) {
       const now = new Date();
       const dayKey = api.businessDay(now);
       const promoOn = api.promoActive(dayKey);
@@ -251,7 +304,7 @@ const Store = (() => {
           sizeName: topLine ? '' : api.sizeLabel(l.sizeId),
           basePrice: topLine ? 0 : l.basePrice,
           parcel: !!l.parcel,
-          toppings: (l.toppings || []).map((x) => ({ id: x.id, flavourId: x.flavourId || null, name: x.name, price: x.price, qty: api.topQty(x) })),
+          toppings: (l.toppings || []).map((x) => ({ id: x.id, flavourId: x.flavourId || null, name: x.name, price: x.price, qty: api.topQty(x), ...(x.comp ? { comp: true } : {}) })),
           included: topLine ? [] : api.includedNames(S.item[l.itemId]),
           sugar: l.sugar || '',
           ice: l.ice || '',
@@ -260,8 +313,9 @@ const Store = (() => {
           unitPrice: api.lineUnitPrice(l),
           promo: pr.amount,          // per cup
           promoIndex: pr.index,      // which topping was free
+          comp: api.lineComp(l),     // per cup: complimentary toppings
           lineGross: api.lineUnitPrice(l) * l.qty,
-          lineTotal: (api.lineUnitPrice(l) - pr.amount) * l.qty,
+          lineTotal: (api.lineUnitPrice(l) - pr.amount - api.lineComp(l)) * l.qty,
           cost: U.round(api.lineCost(l)),
         };
       });
@@ -281,6 +335,8 @@ const Store = (() => {
         subtotal: t.subtotal,
         promo: t.promo,
         promoName: t.promo ? (S.settings.promo?.name || 'Promotion') : '',
+        comp: t.comp,
+        compReason: t.comp ? String(compReason || '').trim() : '',
         discount: t.discount,
         discountInfo: discount && discount.value > 0 ? { ...discount } : null,
         vat: t.vat,
