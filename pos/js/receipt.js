@@ -52,12 +52,14 @@ const Receipt = (() => {
       if (inc.length) ops.push({ t: 'text', s: `Included: ${inc.join(', ')}`, z: 0.9, i: 1 });
       (l.toppings || []).forEach((tp, k) => {
         ops.push({ t: 'row', l: `+ ${Store.topName(tp)}`, r: m(tp.price * Store.topQty(tp) * l.qty), z: 0.9, i: 1 });
+        if (tp.comp) ops.push({ t: 'row', l: 'Complimentary', r: '-' + m(tp.price * Store.topQty(tp) * l.qty), z: 0.9, i: 2 });
         if (l.promo && k === l.promoIndex) ops.push({ t: 'row', l: order.promoName || 'Free topping', r: '-' + m(l.promo * l.qty), z: 0.9, i: 2 });
       });
       if (l.note) ops.push({ t: 'text', s: `Note: ${l.note}`, z: 0.9, i: 1 });
     });
     ops.push({ t: 'hr' });
     ops.push({ t: 'row', l: 'Subtotal', r: m(order.subtotal) });
+    if (order.comp > 0) ops.push({ t: 'row', l: `Complimentary${order.compReason ? ' – ' + order.compReason : ''}`, r: '-' + m(order.comp) });
     if (order.promo > 0) ops.push({ t: 'row', l: 'Promotional Discount', r: '-' + m(order.promo) });
     if (order.discount > 0) {
       const d = order.discountInfo || {};
@@ -144,6 +146,7 @@ const Receipt = (() => {
       { t: 'row', l: 'Gross sales', r: m(r.gross) },
     ];
     if (r.promo) ops.push({ t: 'row', l: `Promotion (${r.promoCups} free toppings)`, r: '-' + m(r.promo) });
+    if (r.comp) ops.push({ t: 'row', l: `Complimentary (${r.compToppings} toppings)`, r: '-' + m(r.comp) });
     ops.push({ t: 'row', l: 'Discounts', r: '-' + m(r.discount) });
     if (r.vat) ops.push({ t: 'row', l: 'VAT', r: m(r.vat) });
     if (r.deliveryCharges) ops.push({ t: 'row', l: 'Delivery charges', r: m(r.deliveryCharges) });

@@ -92,6 +92,8 @@ Views.settings = (() => {
             <div><label>Default sugar</label><input data-k="defaultSugar" value="${U.esc(s.defaultSugar)}"></div>
             <div><label>Ice levels</label><input data-k="iceLevels" data-list value="${U.esc(s.iceLevels.join(', '))}"></div>
             <div><label>Default ice</label><input data-k="defaultIce" value="${U.esc(s.defaultIce)}"></div>
+            <div class="span2"><label>Quick side notes for items (comma separated)</label><input data-k="quickNotes" data-list value="${U.esc((s.quickNotes || []).join(', '))}"></div>
+            <div class="span2"><label>Complimentary topping reasons (comma separated)</label><input data-k="compReasons" data-list value="${U.esc((s.compReasons || []).join(', '))}"></div>
             <div><label>Quick discount buttons (%)</label><input data-k="discountPresets" data-list data-num value="${U.esc((s.discountPresets || []).join(', '))}"></div>
             <div><label>Loyalty: free drink every N cups (0 = off)</label><input type="number" data-k="loyaltyEvery" data-num min="0" value="${s.loyaltyEvery}"></div>
             <div><label>VAT %</label><input type="number" data-k="vatPct" data-num min="0" max="30" step="any" value="${s.vatPct}"></div>
