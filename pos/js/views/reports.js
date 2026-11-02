@@ -36,8 +36,10 @@ Views.reports = (() => {
       promo: U.sum(paid, (o) => o.promo || 0),
       promoCups: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.promo ? l.qty : 0))),
       comp: U.sum(paid, (o) => o.comp || 0),
-      compToppings: U.sum(paid, (o) => U.sum(o.lines, (l) => U.sum((l.toppings || []).filter((t) => t.comp), (t) => l.qty * Store.topQty(t)))),
+      compToppings: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? 0 : U.sum((l.toppings || []).filter((t) => t.comp), (t) => l.qty * Store.topQty(t))))),
+      compDrinks: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? l.qty : 0))),
       compOrders: paid.filter((o) => o.comp > 0).length,
+      compCost: U.round(U.sum(paid, (o) => Store.orderCompCost(o))),
       vat: U.sum(paid, (o) => o.vat),
       collected: U.sum(paid, (o) => o.total),
       cogs: U.round(U.sum(paid, (o) => o.cost)),
@@ -72,6 +74,24 @@ Views.reports = (() => {
     r.payments = Object.values(pay).sort((a, b) => b.amount - a.amount);
     const types = group((o, m) => { const k = o.orderType; m[k] = m[k] || { name: k, count: 0, amount: 0 }; m[k].count++; m[k].amount += o.total; });
     r.orderTypes = Object.values(types).sort((a, b) => b.amount - a.amount);
+
+    // Complimentary: who got what free, and what it cost the shop in ingredients.
+    const comps = paid.filter((o) => o.comp > 0);
+    r.compList = comps.map((o) => ({
+      id: o.id, no: o.no, day: o.dayKey, at: o.at, reason: o.compReason || 'No reason given',
+      items: o.lines.filter((l) => l.comp > 0).map((l) => (l.compDrink ? `${l.qty}× ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}`
+        : `${(l.toppings || []).filter((t) => t.comp).map((t) => Store.topName(t)).join(', ')} on ${l.qty}× ${l.name}`)).join('; '),
+      value: o.comp, cost: Store.orderCompCost(o),
+    })).sort((a, b) => a.at.localeCompare(b.at));
+    const by = {};
+    r.compList.forEach((c) => {
+      // "Relative · Karim" and "Relative · Nila" both count under "Relative"; names stay in the order list.
+      const reason = c.reason.split(' · ')[0].trim() || c.reason;
+      const k = reason.toLowerCase();
+      by[k] = by[k] || { reason, orders: 0, value: 0, cost: 0 };
+      by[k].orders++; by[k].value += c.value; by[k].cost += c.cost;
+    });
+    r.compBy = Object.values(by).map((c) => ({ ...c, cost: U.round(c.cost) })).sort((a, b) => b.cost - a.cost);
 
     const items = {}; const tops = {}; const sizes = {}; const cats = {};
     paid.forEach((o) => o.lines.forEach((l) => {
@@ -159,6 +179,9 @@ Views.reports = (() => {
     draw();
   }
 
+  const compCount = (r) => [r.compDrinks && `${r.compDrinks} drink${r.compDrinks === 1 ? '' : 's'}`,
+    r.compToppings && `${r.compToppings} topping${r.compToppings === 1 ? '' : 's'}`].filter(Boolean).join(', ') || '0 items';
+
   const bars = (rows, label, value, fmt = U.money) => {
     const max = Math.max(1, ...rows.map(value));
     return rows.map((x) => `<div class="bar-row"><span>${label(x)}</span><div class="bar"><i style="width:${(value(x) / max) * 100}%"></i></div><b>${fmt(value(x))}</b></div>`).join('');
@@ -212,7 +235,7 @@ Views.reports = (() => {
           ${r.cups ? `<p class="muted small mt">${U.pct(U.sum(r.toppings, (t) => t.qty) / r.cups)} topping attach rate — suggest a topping with every order!</p>` : ''}</div>
         <div class="card"><h3>💰 Money summary</h3>
           <div class="tot-row"><span>Gross sales (menu price)</span><span>${U.money(r.gross)}</span></div>
-          ${r.comp ? `<div class="tot-row disc"><span>🎁 Complimentary (${r.compToppings} toppings, ${r.compOrders} orders)</span><span>-${U.money(r.comp)}</span></div>` : ''}
+          ${r.comp ? `<div class="tot-row disc"><span>🎁 Complimentary (${compCount(r)}, ${r.compOrders} orders)</span><span>-${U.money(r.comp)}</span></div>` : ''}
           ${r.promo ? `<div class="tot-row disc"><span>Promotion (${r.promoCups} free toppings)</span><span>-${U.money(r.promo)}</span></div>` : ''}
           <div class="tot-row disc"><span>Discounts (${r.discountedOrders} orders)</span><span>-${U.money(r.discount)}</span></div>
           ${r.vat ? `<div class="tot-row"><span>VAT collected</span><span>${U.money(r.vat)}</span></div>` : ''}
@@ -221,6 +244,7 @@ Views.reports = (() => {
           ${r.parcelCups ? `<div class="tot-row muted"><span>Parcel cups</span><span>${r.parcelCups}</span></div>` : ''}
           <div class="tot-row"><span><b>Collected</b></span><span><b>${U.money(r.collected)}</b></span></div>
           <div class="tot-row"><span>Ingredient &amp; packaging cost</span><span>-${U.money(r.cogs)}</span></div>
+          ${r.compCost ? `<div class="tot-row muted"><span>&nbsp;&nbsp;of which complimentary</span><span>${U.money(r.compCost)}</span></div>` : ''}
           <div class="tot-row"><span>Operating expenses</span><span>-${U.money(r.opExpenses)}</span></div>
           <div class="tot-row grand"><span>Net profit</span><span>${U.money(r.netProfit)}</span></div>
           <div class="tot-row muted"><span>Stock purchased (cash spent on stock)</span><span>${U.money(r.stockPurchased)}</span></div>
@@ -228,6 +252,17 @@ Views.reports = (() => {
           ${r.voids ? `<div class="tot-row muted"><span>Voided orders (${r.voids})</span><span>${U.money(r.voidValue)}</span></div>` : ''}
           ${r.unpaid ? `<div class="tot-row err"><span>Not paid yet (${r.unpaid}) · not in sales</span><span>${U.money(r.unpaidValue)}</span></div>` : ''}
         </div>
+        <div class="card"><h3>🎁 Complimentary</h3>${r.compOrders ? `
+          <div class="tot-row"><span>Given free (${compCount(r)})</span><span>${U.money(r.comp)} <small class="muted">menu price</small></span></div>
+          <div class="tot-row grand"><span>Cost to the shop</span><span>${U.money(r.compCost)}</span></div>
+          <p class="muted small">Ingredient &amp; packaging cost. It is already part of the ingredient cost above, so profit is correct.</p>
+          <table class="tbl compact mt"><thead><tr><th>For</th><th class="r">Orders</th><th class="r">Value</th><th class="r">Cost</th></tr></thead>
+            <tbody>${r.compBy.map((c) => `<tr><td>${U.esc(c.reason)}</td><td class="r">${c.orders}</td><td class="r">${U.money(c.value)}</td><td class="r">${U.money(c.cost)}</td></tr>`).join('')}</tbody></table>
+          <table class="tbl compact mt"><thead><tr><th>#</th><th>Given</th><th class="r">Cost</th></tr></thead>
+            <tbody>${r.compList.slice(-15).reverse().map((c) => `<tr><td>${single ? '' : `<small class="muted">${U.esc(c.day.slice(5))}</small> `}#${c.no}<br><small class="muted">${U.fmtTime(c.at)}</small></td>
+              <td class="wrap">${U.esc(c.items)}<br><small class="muted">${U.esc(c.reason)}</small></td><td class="r">${U.money(c.cost)}</td></tr>`).join('')}</tbody></table>
+          ${r.compList.length > 15 ? `<p class="muted small mt">Latest 15 shown. All are in the Orders CSV.</p>` : ''}`
+          : '<p class="muted">Nothing given free.</p><p class="muted small">Use <b>🎁 Complimentary</b> in the cart to give a drink or topping free to a relative or favourite customer.</p>'}</div>
         ${!single && nDays >= 7 ? `<div class="card"><h3>📅 Weekdays <small class="muted">avg per day</small></h3>${bars(r.weekdays.filter((w) => w.days.size), (w) => WD[w.i], (w) => w.sales / w.days.size)}</div>` : ''}
         <div class="card"><h3>💙 Customers</h3>
           <p class="muted small">${r.withPhone} of ${r.orders} orders had a phone number. Collect numbers to offer loyalty rewards!</p>
@@ -239,9 +274,9 @@ Views.reports = (() => {
 
     U.$('#rPrint', body).onclick = () => Print.dayReport({ ...r, title: single ? 'Daily summary' : 'Sales summary', range: single ? U.fmtDay(from) : `${from} to ${to}`, ...(close || {}), expectedCash: (close?.openingCash || 0) + r.cashSales - r.cashExpenses, countedCash: close ? close.countedCash : null });
     U.$('#rCsvO', body).onclick = () => U.download(`orders-${from}_to_${to}.csv`, U.toCSV([
-      ['Date', 'Time', 'Order #', 'Status', 'Type', 'Customer', 'Phone', 'Cups', 'Items', 'Subtotal', 'Complimentary', 'Complimentary for', 'Discount', 'VAT', 'Total', 'Payment', 'Ingredient cost', 'Note'],
+      ['Date', 'Time', 'Order #', 'Status', 'Type', 'Customer', 'Phone', 'Cups', 'Items', 'Subtotal', 'Complimentary', 'Complimentary for', 'Complimentary cost', 'Discount', 'VAT', 'Total', 'Payment', 'Ingredient cost', 'Note'],
       ...data.orders.sort((a, b) => a.at.localeCompare(b.at)).map((o) => [o.dayKey, U.fmtTime(o.at), o.no, o.status, o.orderType, o.customerName, o.customerPhone, o.cups,
-        o.lines.map((l) => `${l.qty}x ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}${l.parcel ? ' [parcel]' : ''}${l.note ? ` [note: ${l.note}]` : ''}`).join('; '), o.subtotal, o.comp || 0, o.compReason || '', o.discount, o.vat, o.total, o.payMethod, o.cost, o.note || '']),
+        o.lines.map((l) => `${l.qty}x ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}${l.parcel ? ' [parcel]' : ''}${l.note ? ` [note: ${l.note}]` : ''}`).join('; '), o.subtotal, o.comp || 0, o.compReason || '', Store.orderCompCost(o), o.discount, o.vat, o.total, o.payMethod, o.cost, o.note || '']),
     ]), 'text/csv');
     U.$('#rCsvI', body).onclick = () => U.download(`items-${from}_to_${to}.csv`, U.toCSV([
       ['Drink', 'Cups sold', 'Sales (BDT)', 'Ingredient cost (BDT)', 'Profit (BDT)'],
@@ -272,7 +307,7 @@ Views.reports = (() => {
         const rec = {
           id: day, at: new Date().toISOString(), openingCash, countedCash: counted, expectedCash,
           difference: counted === null ? null : counted - expectedCash, note: U.$('#dcNote', m.el).value.trim(),
-          totals: { orders: r.orders, cups: r.cups, collected: r.collected, cogs: r.cogs, cashSales: r.cashSales, cashExpenses: r.cashExpenses },
+          totals: { orders: r.orders, cups: r.cups, collected: r.collected, cogs: r.cogs, comp: r.comp, compCost: r.compCost, cashSales: r.cashSales, cashExpenses: r.cashExpenses },
         };
         await DB.put('dayCloses', rec);
         const doPrint = U.$('#dcPrint', m.el).checked;

@@ -71,7 +71,7 @@ With the **fast print** shortcut, stickers skip the print window and go to the *
 - The ticks in the payment window (*Customer bill*, *Kitchen copy*, *Cup stickers*) are remembered, even after the POS restarts.
 - If a bill or kitchen copy can't print directly, the POS asks what to do (**Try again**, *Use print window* or *Skip*). It no longer opens the print window by itself.
 - **Side note for an item**: in the drink window type in *Side note* or tap a quick note (*Serve first*, *Extra cold*, *No straw*…). In the cart, the **✎ Note?** button on each item adds or edits it. Notes print on the bill, the kitchen copy and the cup sticker. Change the quick notes in Settings → Selling.
-- **Complimentary topping** (a relative or favourite customer): add the topping as usual, then tap **🎁** next to it in the drink window, or press **🎁 Complimentary** in the cart, tick the toppings and pick who it is for (*Relative*, *Favourite customer*…). The topping is free for the customer but still taken from stock. The bill shows *Complimentary – Relative*, and Reports show how much was given away. Change the reasons in Settings → Selling.
+- **Complimentary drink or topping** (a relative or favourite customer): press **🎁 Complimentary** in the cart. Tick **Whole drink free** for a free drink (its toppings are free too), or tick only a topping. Pick who it is for (*Relative*, *Favourite customer*…) and add a name after it if you like, e.g. *Relative · Karim*. For a single topping you can also tap **🎁** next to it in the drink window. It is free for the customer but still taken from stock. The bill shows *Complimentary – Relative*. If the whole order is free, the payment window skips the cash and saves it as **Complimentary**. Reports → **🎁 Complimentary** shows the menu value given away, the **cost to the shop** (ingredients + packaging), a list by who it was for, and each order. The Z-report prints the same totals. Change the reasons in Settings → Selling.
 - `F2` Sell · `/` search · `Enter` add · `F12` charge · `Esc` close.
 - Ask for the **phone number** at every order. It builds your customer list and the loyalty count (free drink every 10 cups by default).
 - Press **Ready ✓** in the "Making now" bar when a drink is handed over.
@@ -95,6 +95,7 @@ With the **fast print** shortcut, stickers skip the print window and go to the *
 - **Ingredient cost (COGS)**: the recipe cost of every drink sold, including the cup, straw, film, and sticker. Aim for **25–32%** of sales.
 - **Gross profit** = sales − ingredient cost.
 - **Net profit** = gross profit − expenses (rent, salary, bills). Stock purchases are **not** counted again here, because they already appear as ingredient cost when you sell.
+- **Complimentary cost** is what free drinks and toppings cost you in ingredients and packaging. It is already inside the ingredient cost (shown as *of which complimentary*), so it is not taken off profit twice.
 - **Stock purchased** is shown separately so you can see the cash spent on stock.
 - **VAT** is off by default (0%). If you register for VAT, set the rate and mode in Settings and add your BIN. Check the current rate with your accountant.
 
