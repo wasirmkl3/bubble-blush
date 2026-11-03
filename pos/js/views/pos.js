@@ -9,7 +9,7 @@ Views.pos = (() => {
   let printPrefs = null;
 
   function emptyCart() {
-    return { lines: [], discount: null, orderType: null, customerName: '', customerPhone: '', note: '', deliveryCharge: 0, packagingCharge: 0, compReason: '' };
+    return { lines: [], discount: null, orderType: null, customerName: '', customerPhone: '', note: '', deliveryCharge: 0, packagingCharge: 0, compReason: '', loyalty: null };
   }
   const isDelivery = () => /deliver/i.test(cart.orderType || '');
   const anyParcel = () => cart.lines.some((l) => l.parcel);
@@ -299,7 +299,7 @@ Views.pos = (() => {
       if (existing) cart.lines[editIndex] = line;
       else {
         // merge identical lines
-        const key = (l) => JSON.stringify([l.kind || 'drink', l.itemId, l.sizeId, l.sugar, l.ice, l.note, !!l.parcel, !!l.compDrink,
+        const key = (l) => JSON.stringify([l.kind || 'drink', l.itemId, l.sizeId, l.sugar, l.ice, l.note, !!l.parcel, !!l.compDrink, U.n(l.compBase),
           l.toppings.map((x) => `${topKey(x)}|${Store.topQty(x)}|${x.comp ? 'comp' : ''}`).sort()]);
         const same = cart.lines.find((l) => key(l) === key(line));
         if (same) same.qty += line.qty; else cart.lines.push(line);
@@ -329,7 +329,7 @@ Views.pos = (() => {
         const incl = topLine ? [] : Store.includedNames(Store.S.item[l.itemId]);
         return `<div class="cl ${l.parcel ? 'parcel' : ''}" data-i="${i}">
           <div class="cl-main" data-edit="${i}">
-            <div class="cl-name">${U.esc(l.name)} ${topLine ? '<span class="tag">no drink</span>' : `<span class="tag">${U.esc(Store.sizeLabel(l.sizeId))}</span>`}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}</div>
+            <div class="cl-name">${U.esc(l.name)} ${topLine ? '<span class="tag">no drink</span>' : `<span class="tag">${U.esc(Store.sizeLabel(l.sizeId))}</span>`}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}${Store.lineCompBase(l) ? ` <b class="comp-tag">🎫 LOYALTY -${U.money(Store.lineCompBase(l))}</b>` : ''}</div>
             ${opts ? `<div class="cl-sub">${U.esc(opts)}</div>` : ''}
             ${incl.length ? `<div class="cl-sub">Included: ${incl.map(U.esc).join(', ')}</div>` : ''}
             ${l.toppings.map((x, k) => `<div class="cl-sub">+ ${U.esc(Store.topName(x))} ${x.comp && !l.compDrink ? `<s>${U.money(topPrice(x))}</s> <b class="comp-tag">🎁 COMPLIMENTARY</b>` : U.money(topPrice(x))}${k === pr.index && pr.amount ? ' <b class="free-tag">FREE</b>' : ''}</div>`).join('')}
@@ -507,6 +507,58 @@ Views.pos = (() => {
     saveCart();
   }
 
+  /* ---------- loyalty card ---------- */
+  const stampsHTML = (pos, card) => `<span class="stamps">${Array.from({ length: card }, (_, i) => `<i class="${i < pos ? 'on' : ''} ${Store.rewardAt(i + 1) ? 'gift' : ''}">${Store.rewardAt(i + 1) ? '🎁' : ''}</i>`).join('')}</span>`;
+  function loyaltyHTML(ls, canApply) {
+    const applied = cart.loyalty && cart.loyalty.phone === ls.phone && cart.loyalty.visit === ls.visit;
+    let msg;
+    if (ls.reward && applied) msg = `<b class="gold">✓ Loyalty reward applied: ${U.esc(Store.rewardLabel(ls.reward, ls.drinkMax))}</b>`;
+    else if (ls.reward) {
+      msg = `<b class="gold">🎉 Visit ${ls.pos} — ${U.esc(Store.rewardLabel(ls.reward, ls.drinkMax))}!</b>`;
+      if (canApply) msg += ` <button type="button" class="btn sm gold" data-reward="${ls.reward}">🎁 Give ${ls.reward === 'topping' ? 'free topping' : 'free drink'}</button>`;
+    } else if (ls.claimed) msg = `✓ Today's reward already given (${U.esc(Store.rewardLabel(ls.claimed, ls.drinkMax))})`;
+    else msg = ls.next ? `${ls.next.in} more visit${ls.next.in === 1 ? '' : 's'} to ${U.esc(Store.rewardLabel(ls.next.reward, ls.drinkMax))}` : '';
+    return `🎫 Loyalty card: visit <b>${ls.pos}</b> of ${ls.card} ${stampsHTML(ls.pos, ls.card)}<br>${msg}`;
+  }
+
+  /* Put the reward on one cup in the cart, as complimentary with reason "Loyalty". */
+  function applyReward(ls) {
+    // One cup only: split it off a line with qty 2+.
+    const single = (i) => {
+      const l = cart.lines[i];
+      if (l.qty <= 1) return l;
+      l.qty -= 1;
+      const one = JSON.parse(JSON.stringify(l));
+      one.qty = 1;
+      cart.lines.splice(i + 1, 0, one);
+      return one;
+    };
+    const drinks = cart.lines.map((l, i) => ({ l, i })).filter((x) => !Store.isToppingLine(x.l) && !x.l.compDrink && !U.n(x.l.compBase));
+    if (ls.reward === 'topping') {
+      // The customer picks any topping: make the dearest one on a drink free (single portion preferred).
+      let best = null;
+      drinks.forEach(({ l, i }) => (l.toppings || []).forEach((t, k) => {
+        if (t.comp) return;
+        const score = U.n(t.price) * (Store.topQty(t) > 1 ? 0.99 : 1);
+        if (!best || score > best.score) best = { i, k, score };
+      }));
+      if (!best) { U.toast('Add the topping the customer wants to a drink first, then give the reward', 'err', 5000); return false; }
+      single(best.i).toppings[best.k].comp = true;
+    } else {
+      // Free drink up to the limit (e.g. ৳200): the customer pays the rest and any toppings.
+      if (!drinks.length) { U.toast('Add the drink (or dessert) the customer wants first, then give the reward', 'err', 5000); return false; }
+      const pick = drinks.reduce((a, b) => (Math.min(U.n(b.l.basePrice), ls.drinkMax) > Math.min(U.n(a.l.basePrice), ls.drinkMax) ? b : a));
+      single(pick.i).compBase = ls.drinkMax;
+    }
+    cart.loyalty = { phone: ls.phone, visit: ls.visit, reward: ls.reward };
+    const label = `Loyalty · visit ${ls.pos}`;
+    if (!cart.compReason) cart.compReason = label;
+    else if (!/^loyalty/i.test(cart.compReason)) cart.compReason = `${label} + ${cart.compReason}`;
+    saveCart();
+    U.toast(ls.reward === 'topping' ? '🎁 Free topping applied' : `🎁 Free drink applied (up to ${U.money(ls.drinkMax)})`);
+    return true;
+  }
+
   function openCustomer() {
     const body = document.createElement('div');
     body.innerHTML = `${customerFieldsHTML(cart.customerName, cart.customerPhone)}<div class="loyal" id="custInfo"></div>`;
@@ -522,7 +574,8 @@ Views.pos = (() => {
     });
     const info = async () => {
       const s = await Store.customerStats(f.phoneIn.value);
-      U.$('#custInfo', body).innerHTML = !s ? '' : s.visits ? `💙 Returning: ${s.visits} visits · ${s.cups} cups · ${U.money(s.spent)} spent` : '🌱 New customer';
+      const ls = s && s.visits ? await Store.loyaltyStatus(f.phoneIn.value) : null;
+      U.$('#custInfo', body).innerHTML = !s ? '' : s.visits ? `💙 Returning: ${s.visits} orders · ${s.cups} cups · ${U.money(s.spent)} spent${ls ? `<br>${loyaltyHTML(ls, false)}` : ''}` : '🌱 New customer';
     };
     const f = bindCustomerPicker(body, (n, p, picked) => { if (picked) info(); });
     f.phoneIn.addEventListener('input', U.debounce(info, 300));
@@ -592,16 +645,17 @@ Views.pos = (() => {
       wide: true,
       actions: [
         { label: 'Charge all', cls: 'danger', left: true, onClick: () => {
-          cart.lines.forEach((l) => { delete l.compDrink; (l.toppings || []).forEach((t) => delete t.comp); });
-          cart.compReason = ''; saveCart(); renderCart();
+          cart.lines.forEach((l) => { delete l.compDrink; delete l.compBase; (l.toppings || []).forEach((t) => delete t.comp); });
+          cart.compReason = ''; cart.loyalty = null; saveCart(); renderCart();
         } },
         { label: 'Cancel' },
         { label: 'Apply', cls: 'primary', onClick: () => {
           const reason = U.$('#compReason', body).value.trim();
           drinks.forEach((d) => { if (U.$(`[data-cd="${d.li}"]`, body).checked) d.l.compDrink = true; else delete d.l.compDrink; });
           rows.forEach((r, k) => { if (!r.l.compDrink && U.$(`[data-ck="${k}"]`, body).checked) r.t.comp = true; else delete r.t.comp; });
-          const any = cart.lines.some((l) => l.compDrink || (l.toppings || []).some((t) => t.comp));
+          const any = cart.lines.some((l) => l.compDrink || U.n(l.compBase) > 0 || (l.toppings || []).some((t) => t.comp));
           cart.compReason = any ? reason : '';
+          if (!any) cart.loyalty = null;
           saveCart(); renderCart();
           if (any) U.toast(`Complimentary applied${reason ? ' · ' + reason : ''}`);
         } },
@@ -730,17 +784,20 @@ Views.pos = (() => {
       const box = U.$('#loyal', body);
       const s = await Store.customerStats(phone.value, existing ? existing.id : null);
       if (!s) { box.innerHTML = ''; return; }
-      if (!s.visits) { box.innerHTML = '🌱 New customer — welcome them!'; return; }
+      if (!s.visits) { box.innerHTML = `🌱 New customer — welcome them!${Store.loyaltyCard().card ? ' This is visit 1 on their loyalty card.' : ''}`; return; }
       if (s.name && !cust.nameIn.value) { cust.nameIn.value = s.name; if (!existing) setCartCustomer(s.name, phone.value); }
-      const every = Number(st().loyaltyEvery) || 0;
-      let loyalty = '';
-      if (every > 0) {
-        const after = s.cups + t.cups;
-        const earned = Math.floor(after / every) - Math.floor(s.cups / every);
-        loyalty = earned > 0 ? ` · <b class="gold">🎁 Reached ${every} cups — give a free drink!</b>` : ` · ${every - (after % every)} more cup(s) to a free drink`;
-      }
-      box.innerHTML = `💙 Returning: ${s.visits} visits · ${s.cups} cups · ${U.money(s.spent)} spent${loyalty}`;
+      const ls = await Store.loyaltyStatus(phone.value, { excludeOrderId: existing ? existing.id : null });
+      box.innerHTML = `💙 Returning: ${s.visits} orders · ${s.cups} cups · ${U.money(s.spent)} spent${ls ? `<br>${loyaltyHTML(ls, !existing)}` : ''}`;
     }, 350);
+    // Loyalty reward button: apply it to the cart, then reopen this window with the new total.
+    body.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-reward]');
+      if (!b || existing) return;
+      Store.loyaltyStatus(phone.value).then((ls) => {
+        if (!ls || ls.reward !== b.dataset.reward) return;
+        if (applyReward(ls)) { md.close(); openPay(); }
+      });
+    });
     phone.addEventListener('input', lookup);
     if (phone.value) lookup();
     updateMethod();
@@ -771,6 +828,7 @@ Views.pos = (() => {
           deliveryCharge: ex.delivery,
           packagingCharge: ex.packaging,
           compReason: cart.compReason,
+          loyalty: cart.loyalty,
           customerName: U.$('#custName', body).value,
           customerPhone: phone.value,
           payMethod: method,
@@ -830,6 +888,7 @@ Views.pos = (() => {
           deliveryCharge: ex.delivery,
           packagingCharge: ex.packaging,
           compReason: cart.compReason,
+          loyalty: cart.loyalty,
           customerName: U.$('#custName', body).value,
           customerPhone: phone.value,
           note: cart.note,

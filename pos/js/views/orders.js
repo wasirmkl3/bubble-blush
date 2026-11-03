@@ -40,14 +40,14 @@ Views.orders = (() => {
     const paid = live.filter((o) => o.status !== 'unpaid');
     const unpaid = live.filter((o) => o.status === 'unpaid');
     // Complimentary cups = whole drinks given free. A free topping on a paid drink is still a sold cup.
-    const freeCups = (o) => U.sum(o.lines || [], (l) => (l.compDrink && !Store.isToppingLine(l) ? U.n(l.qty) : 0));
+    const freeCups = (o) => U.sum(o.lines || [], (l) => (Store.isFreeCup(l) ? U.n(l.qty) : 0));
     const allCups = U.sum(live, (o) => o.cups);
     const free = U.sum(live, freeCups);
-    const freeCost = U.round(U.sum(live.filter((o) => freeCups(o) > 0), (o) => U.sum(o.lines, (l) => (l.compDrink ? U.n(l.compCost ?? Store.lineCost(l)) : 0))));
+    const freeCost = U.round(U.sum(live.filter((o) => freeCups(o) > 0), (o) => U.sum(o.lines, (l) => (Store.isFreeCup(l) ? U.n(l.compCost ?? Store.lineCost(l)) : 0))));
     U.$('#oStats', root).innerHTML = [
       ['Orders', live.length],
       ['Sold cups', allCups - free],
-      ['🎁 Complimentary cups', free, free ? `menu ${U.money(U.sum(live, (o) => U.sum(o.lines, (l) => (l.compDrink ? l.comp * l.qty : 0))))} · cost ${U.money(freeCost)}` : ''],
+      ['🎁 Complimentary cups', free, free ? `menu ${U.money(U.sum(live, (o) => U.sum(o.lines, (l) => (Store.isFreeCup(l) ? l.comp * l.qty : 0))))} · cost ${U.money(freeCost)}` : ''],
       ['Sales', U.money(U.sum(paid, (o) => o.total))],
       ...(unpaid.length ? [['Not paid yet', `${unpaid.length} · ${U.money(U.sum(unpaid, (o) => o.total))}`]] : []),
       ['Voided', orders.length - live.length],
@@ -62,7 +62,7 @@ Views.orders = (() => {
       <tbody>${list.map((o) => `<tr data-id="${o.id}" class="click ${o.status === 'void' ? 'void' : ''}">
         <td><b>#${o.no}</b>${o.moved ? ` <span title="Entered on ${U.esc(U.fmtDay(o.moved[0].fromDay))}, moved here">📅</span>` : ''}</td>
         <td>${U.fmtTime(o.at)}</td>
-        <td class="wrap">${o.lines.map((l) => `${l.qty}× ${U.esc(l.name)}${l.sizeName ? ` <small>(${U.esc(l.sizeName)})</small>` : ''}${l.parcel ? ' 🥡' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 free</b>' : ''}`).join(', ')}</td>
+        <td class="wrap">${o.lines.map((l) => `${l.qty}× ${U.esc(l.name)}${l.sizeName ? ` <small>(${U.esc(l.sizeName)})</small>` : ''}${l.parcel ? ' 🥡' : ''}${Store.isFreeCup(l) ? ' <b class="comp-tag">🎁 free</b>' : ''}`).join(', ')}</td>
         <td>${U.esc(o.orderType)}</td>
         <td>${U.esc(o.customerName || '')}${o.customerPhone ? `<br><small>${U.esc(o.customerPhone)}</small>` : ''}</td>
         <td>${o.status === 'unpaid' ? '<span class="badge out">Not paid</span>' : U.esc(o.payMethod)}</td>
@@ -78,7 +78,7 @@ Views.orders = (() => {
   function openOrder(o) {
     const lines = o.lines.map((l, i) => `<tr>
       <td>${l.qty}×</td>
-      <td><b>${U.esc(l.name)}</b>${l.sizeName ? ` (${U.esc(l.sizeName)})` : ' <span class="tag">no drink</span>'}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}
+      <td><b>${U.esc(l.name)}</b>${l.sizeName ? ` (${U.esc(l.sizeName)})` : ' <span class="tag">no drink</span>'}${l.parcel ? ' <span class="tag parcel">🥡 Parcel</span>' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}${Store.lineCompBase(l) ? ` <b class="comp-tag">🎫 LOYALTY -${U.money(Store.lineCompBase(l))}</b>` : ''}
         <div class="muted small">${[l.sugar && 'Sugar ' + l.sugar, l.ice].filter(Boolean).map(U.esc).join(' · ')}
         ${(l.included || []).length ? '<br>Included: ' + l.included.map(U.esc).join(', ') : ''}
         ${l.toppings.length ? '<br>' + l.toppings.map((t, k) => `+ ${U.esc(Store.topName(t))} ${U.money(t.price * Store.topQty(t))}${t.comp && !l.compDrink ? ' <b class="comp-tag">🎁 COMPLIMENTARY</b>' : ''}${l.promo && k === l.promoIndex ? ' <b class="free-tag">FREE</b>' : ''}`).join('<br>') : ''}${l.note ? '<br>✎ ' + U.esc(l.note) : ''}</div></td>
@@ -94,7 +94,8 @@ Views.orders = (() => {
         ${o.status === 'unpaid' ? '<div class="banner warn">💰 Not paid yet: the kitchen copy went first. Press <b>Take payment</b> when the customer pays.</div>' : ''}
         <div class="kv"><span>Type</span><b>${U.esc(o.orderType)}</b><span>Payment</span><b>${o.status === 'unpaid' ? 'Not paid yet' : U.esc(o.payMethod)}</b>
           ${o.customerName || o.customerPhone ? `<span>Customer</span><b>${U.esc(o.customerName)} ${U.esc(o.customerPhone)}</b>` : ''}
-          ${o.note ? `<span>Note</span><b>${U.esc(o.note)}</b>` : ''}</div>
+          ${o.note ? `<span>Note</span><b>${U.esc(o.note)}</b>` : ''}
+          ${o.stamp ? `<span>Loyalty card</span><b>Visit ${o.stamp.pos} of ${o.stamp.card}${o.loyalty ? ` · 🎁 ${U.esc(Store.rewardLabel(o.loyalty.reward))}` : ''}</b>` : ''}</div>
         <table class="tbl compact">${lines}</table>
         <div class="tot-box">
           <div class="tot-row"><span>Subtotal</span><span>${U.money(o.subtotal)}</span></div>

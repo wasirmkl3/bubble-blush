@@ -95,7 +95,9 @@ Views.settings = (() => {
             <div class="span2"><label>Quick side notes for items (comma separated)</label><input data-k="quickNotes" data-list value="${U.esc((s.quickNotes || []).join(', '))}"></div>
             <div class="span2"><label>Complimentary topping reasons (comma separated)</label><input data-k="compReasons" data-list value="${U.esc((s.compReasons || []).join(', '))}"></div>
             <div><label>Quick discount buttons (%)</label><input data-k="discountPresets" data-list data-num value="${U.esc((s.discountPresets || []).join(', '))}"></div>
-            <div><label>Loyalty: free drink every N cups (0 = off)</label><input type="number" data-k="loyaltyEvery" data-num min="0" value="${s.loyaltyEvery}"></div>
+            <div><label>Loyalty card: visits per card (0 = off) <small class="muted">last visit = free drink or dessert</small></label><input type="number" data-k="loyaltyCard" data-num min="0" value="${s.loyaltyCard}"></div>
+            <div><label>Loyalty: free topping on visit # (0 = none)</label><input type="number" data-k="loyaltyToppingAt" data-num min="0" value="${s.loyaltyToppingAt}"></div>
+            <div><label>Loyalty: free drink / dessert up to ৳ <small class="muted">customer pays the rest</small></label><input type="number" data-k="loyaltyDrinkMax" data-num min="0" value="${s.loyaltyDrinkMax}"></div>
             <div><label>VAT %</label><input type="number" data-k="vatPct" data-num min="0" max="30" step="any" value="${s.vatPct}"></div>
             <div><label>VAT mode</label><select data-k="vatMode"><option value="exclusive" ${s.vatMode === 'exclusive' ? 'selected' : ''}>Added on top of price</option><option value="inclusive" ${s.vatMode === 'inclusive' ? 'selected' : ''}>Already included in price</option></select></div>
             <div><label>Business day starts at (hour, 0–6)</label><input type="number" data-k="dayStartHour" data-num min="0" max="6" value="${s.dayStartHour}"></div>

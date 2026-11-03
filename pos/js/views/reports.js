@@ -37,7 +37,8 @@ Views.reports = (() => {
       promoCups: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.promo ? l.qty : 0))),
       comp: U.sum(paid, (o) => o.comp || 0),
       compToppings: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? 0 : U.sum((l.toppings || []).filter((t) => t.comp), (t) => l.qty * Store.topQty(t))))),
-      compDrinks: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? l.qty : 0))),
+      compDrinks: U.sum(paid, (o) => U.sum(o.lines, (l) => (Store.isFreeCup(l) ? l.qty : 0))),
+      loyaltyRewards: paid.filter((o) => o.loyalty).length,
       compOrders: paid.filter((o) => o.comp > 0).length,
       compCost: U.round(U.sum(paid, (o) => Store.orderCompCost(o))),
       vat: U.sum(paid, (o) => o.vat),
@@ -54,8 +55,8 @@ Views.reports = (() => {
     };
     // Complimentary cups = whole drinks given free; a free topping on a paid drink is still a sold cup.
     r.soldCups = r.cups - r.compDrinks;
-    r.compDrinkValue = U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? U.n(l.comp) * l.qty : 0)));
-    r.compDrinkCost = U.round(U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? U.n(l.compCost ?? Store.lineCost(l)) : 0))));
+    r.compDrinkValue = U.sum(paid, (o) => U.sum(o.lines, (l) => (Store.isFreeCup(l) ? U.n(l.comp) * l.qty : 0)));
+    r.compDrinkCost = U.round(U.sum(paid, (o) => U.sum(o.lines, (l) => (Store.isFreeCup(l) ? U.n(l.compCost ?? Store.lineCost(l)) : 0))));
     r.net = r.collected;
     r.revenue = r.collected - r.vat;
     r.grossProfit = r.revenue - r.cogs;
@@ -83,8 +84,13 @@ Views.reports = (() => {
     const comps = paid.filter((o) => o.comp > 0);
     r.compList = comps.map((o) => ({
       id: o.id, no: o.no, day: o.dayKey, at: o.at, reason: o.compReason || 'No reason given',
-      items: o.lines.filter((l) => l.comp > 0).map((l) => (l.compDrink ? `${l.qty}× ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}`
-        : `${(l.toppings || []).filter((t) => t.comp).map((t) => Store.topName(t)).join(', ')} on ${l.qty}× ${l.name}`)).join('; '),
+      items: o.lines.filter((l) => l.comp > 0).map((l) => {
+        const drink = `${l.qty}× ${l.name}${l.sizeName ? ` (${l.sizeName})` : ''}`;
+        if (l.compDrink) return drink;
+        const tops = (l.toppings || []).filter((t) => t.comp).map((t) => Store.topName(t)).join(', ');
+        const base = Store.lineCompBase(l);
+        return [base ? `${drink}${base < U.n(l.basePrice) ? ` (${U.money(base)} off)` : ''}` : '', tops ? `${tops} on ${l.qty}× ${l.name}` : ''].filter(Boolean).join(' + ');
+      }).join('; '),
       value: o.comp, cost: Store.orderCompCost(o),
     })).sort((a, b) => a.at.localeCompare(b.at));
     const by = {};

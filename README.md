@@ -32,6 +32,7 @@ See **[docs/GUIDE.md](docs/GUIDE.md)** for printer setup and the daily routine.
 - **Menu & Pricing**: recipe costing per size (packaging included), cost %, profit per cup, and a suggested price for your target.
 - **Expenses**: rent, salary, bills, and other costs, so profit is real profit.
 - **Orders**: browse any day, reprint, void, and **📅 move an order to an earlier day** if it was entered late (e.g. yesterday's complimentary drink for a relative).
+- **Loyalty card** by phone number: one stamp per day, 1 free topping on the 5th visit, a free Medium drink or dessert (up to ৳200) on the 10th, printed on the bill.
 - **Reports**: sales, profit, best and slowest sellers, busy hours, weekdays, payments, toppings, complimentary drinks (value and ingredient cost, by who got them), customers, ingredients used, CSV export, and an end-of-day **cash drawer close** with a printed Z-report.
 - **Safety**: manager PIN, one-click backup/restore, and daily backup reminders.
 

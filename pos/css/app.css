@@ -361,3 +361,10 @@ label.check input { width: 18px; height: 18px; accent-color: var(--teal-dd); }
 .cl-btns { display: flex; gap: 4px; }
 .note-btn.on { background: #FBF0D9; border-color: var(--warn); color: #7A5200; font-weight: 700; }
 .note-chips .chip { padding: 4px 11px; font-size: 12px; border-left-width: 1px; }
+
+/* Loyalty card stamps (payment window / customer window) */
+.stamps { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 4px; }
+.stamps i { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--teal-dd); font-style: normal; font-size: 9px; line-height: 13px; text-align: center; }
+.stamps i.on { background: var(--teal-dd); }
+.stamps i.gift { border-color: #C2185B; }
+.stamps i.gift.on { background: #E0527A; }

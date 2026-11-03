@@ -215,14 +215,29 @@ const Store = (() => {
     /* ---------- complimentary (given free by staff: relative, favourite customer…) ---------- */
     /* line.compDrink = the whole drink (with its toppings) is free; t.comp = only that topping is free. */
     /* Per-cup menu value given free on a line (a double portion is fully free). */
+    /* line.compBase = loyalty reward: up to this much off the drink price per cup (toppings are still charged). */
+    lineCompBase(line) {
+      if (line.compDrink || api.isToppingLine(line)) return 0;
+      return Math.min(U.n(line.compBase), U.n(line.basePrice));
+    },
     lineComp(line) {
       if (line.compDrink) return api.lineUnitPrice(line);
-      return U.sum((line.toppings || []).filter((t) => t.comp), (t) => U.n(t.price) * api.topQty(t));
+      return U.sum((line.toppings || []).filter((t) => t.comp), (t) => U.n(t.price) * api.topQty(t)) + api.lineCompBase(line);
     },
     /* Ingredient + packaging cost of what was given free on a line (all cups on the line). */
     lineCompCost(line) {
       if (line.compDrink) return api.lineCost(line);
-      return U.sum((line.toppings || []).filter((t) => t.comp), (t) => api.toppingCost(S.topping[t.id], t.flavourId || null) * api.topQty(t)) * U.n(line.qty);
+      const tops = U.sum((line.toppings || []).filter((t) => t.comp), (t) => api.toppingCost(S.topping[t.id], t.flavourId || null) * api.topQty(t));
+      const item = S.item[line.itemId];
+      const off = api.lineCompBase(line);
+      // Part of the drink free: count that share of the drink's cost.
+      const base = off > 0 && item && U.n(line.basePrice) > 0 ? api.itemSizeCost(item, line.sizeId) * off / U.n(line.basePrice) : 0;
+      return (tops + base) * U.n(line.qty);
+    },
+    /* A whole cup given free (relative's drink, or a loyalty drink with nothing extra to pay). */
+    isFreeCup(l) {
+      if (!l || api.isToppingLine(l)) return false;
+      return !!l.compDrink || (U.n(l.compBase) > 0 && U.n(l.compBase) >= U.n(l.basePrice));
     },
     /* Cost of the complimentary part of a saved order. Orders saved before this was recorded
        are estimated from today's ingredient costs. */
@@ -303,7 +318,7 @@ const Store = (() => {
     },
 
     /* payLater: the drinks go to the kitchen now, payment is taken later (status 'unpaid'). */
-    async placeOrder({ lines, discount, orderType, customerName, customerPhone, payMethod, received, note, payLater = false, deliveryCharge = 0, packagingCharge = 0, compReason = '' }) {
+    async placeOrder({ lines, discount, orderType, customerName, customerPhone, payMethod, received, note, payLater = false, deliveryCharge = 0, packagingCharge = 0, compReason = '', loyalty = null }) {
       const now = new Date();
       const dayKey = api.businessDay(now);
       const promoOn = api.promoActive(dayKey);
@@ -321,6 +336,7 @@ const Store = (() => {
           basePrice: topLine ? 0 : l.basePrice,
           parcel: !!l.parcel,
           ...(l.compDrink ? { compDrink: true } : {}),
+          ...(!l.compDrink && U.n(l.compBase) > 0 ? { compBase: U.n(l.compBase) } : {}),
           toppings: (l.toppings || []).map((x) => ({ id: x.id, flavourId: x.flavourId || null, name: x.name, price: x.price, qty: api.topQty(x), ...(x.comp && !l.compDrink ? { comp: true } : {}) })),
           included: topLine ? [] : api.includedNames(S.item[l.itemId]),
           sugar: l.sugar || '',
@@ -375,6 +391,10 @@ const Store = (() => {
         ready: false,
         usage,
       };
+      // Loyalty reward: only kept if it was given to this same customer and something is actually free.
+      const phoneNow = order.customerPhone;
+      if (loyalty && t.comp > 0 && loyalty.phone === phoneNow) order.loyalty = { visit: loyalty.visit, reward: loyalty.reward };
+      await api.stampOrder(order);
       await DB.transact(['orders', 'ingredients', 'stockMoves'], (o) => {
         o.orders.put(order);
         Object.entries(usage).forEach(([ingId, qty]) => {
@@ -431,6 +451,7 @@ const Store = (() => {
       if (customerName !== undefined) order.customerName = (customerName || '').trim();
       if (customerPhone !== undefined) order.customerPhone = (customerPhone || '').replace(/\s+/g, '');
       if (ref) order.note = [order.note, `TrxID: ${ref}`].filter(Boolean).join(' · ');
+      if (!order.stamp) await api.stampOrder(order); // phone may have been added at payment
       await DB.put('orders', order);
       api.changed('orders');
       return order;
@@ -481,6 +502,52 @@ const Store = (() => {
     ordersBetween(fromDay, toDay) { return DB.byRange('orders', 'dayKey', fromDay, toDay); },
     expensesBetween(fromDay, toDay) { return DB.byRange('expenses', 'dayKey', fromDay, toDay); },
     movesBetween(fromDay, toDay) { return DB.byRange('stockMoves', 'dayKey', fromDay, toDay); },
+
+    /* ---------- loyalty card ---------- */
+    /* A visit = a day the customer bought something. Orders that were only given free
+       (e.g. a relative's drink) don't count; a loyalty reward visit does. */
+    countsForLoyalty(o) {
+      if (!o || o.status === 'void' || !o.customerPhone) return false;
+      return !(U.n(o.total) === 0 && U.n(o.comp) > 0 && !o.loyalty);
+    },
+    loyaltyCard() {
+      const st = S.settings;
+      const card = Math.max(0, Math.round(U.n(st.loyaltyCard)));
+      return { card, toppingAt: Math.round(U.n(st.loyaltyToppingAt)), drinkMax: U.n(st.loyaltyDrinkMax) || 200 };
+    },
+    rewardAt(visit) {
+      const { card, toppingAt } = api.loyaltyCard();
+      if (!card || visit < 1) return null;
+      const pos = ((visit - 1) % card) + 1;
+      if (pos === card) return 'drink';
+      if (toppingAt > 0 && pos === toppingAt) return 'topping';
+      return null;
+    },
+    /* Where the customer is on their card for a visit on `day` (default today). */
+    async loyaltyStatus(phone, { excludeOrderId = null, day = api.businessDay() } = {}) {
+      const p = (phone || '').replace(/\s+/g, '');
+      const { card, toppingAt, drinkMax } = api.loyaltyCard();
+      if (!card || p.length < 6) return null;
+      const orders = (await DB.byIndex('orders', 'customerPhone', p)).filter((o) => o.id !== excludeOrderId && o.status !== 'void');
+      const days = new Set(orders.filter((o) => api.countsForLoyalty(o)).map((o) => o.dayKey));
+      const before = [...days].filter((d) => d < day).length;
+      const visit = before + 1; // this visit (a second order on the same day is the same visit)
+      const pos = ((visit - 1) % card) + 1;
+      const reward = api.rewardAt(visit);
+      const claimed = orders.some((o) => o.loyalty && o.loyalty.visit === visit);
+      let next = null;
+      for (let v = visit + 1; v <= visit + card; v++) { const r = api.rewardAt(v); if (r) { next = { visit: v, reward: r, in: v - visit }; break; } }
+      return { phone: p, visits: before, visit, pos, card, toppingAt, drinkMax, reward: claimed ? null : reward, claimed: claimed ? reward : null, next };
+    },
+    /* Save the card position on the order so the bill can print it (and reprints stay the same). */
+    async stampOrder(order) {
+      if (!api.countsForLoyalty(order)) return;
+      const s = await api.loyaltyStatus(order.customerPhone, { excludeOrderId: order.id, day: order.dayKey });
+      if (s) order.stamp = { visit: s.visit, pos: s.pos, card: s.card };
+    },
+    rewardLabel(r, max = api.loyaltyCard().drinkMax) {
+      return r === 'topping' ? '1 free topping on a drink' : r === 'drink' ? `free Medium drink or dessert (up to ${U.money(max)})` : '';
+    },
 
     async customerStats(phone, excludeOrderId = null) {
       const p = (phone || '').replace(/\s+/g, '');

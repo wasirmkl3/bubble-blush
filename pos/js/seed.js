@@ -50,7 +50,11 @@ const Seed = (() => {
     compReasons: ['Relative', 'Favourite customer', 'Friend', 'Staff', "Owner's guest"],
     // One-tap side notes for a drink (Sell screen). Edit in Settings → Selling.
     quickNotes: ['Serve first', 'Extra cold', 'No straw', 'Extra straw', 'Separate bag', 'Birthday treat'],
-    loyaltyEvery: 10,
+    loyaltyEvery: 10, // old cup-count rule, no longer used
+    // Loyalty card: one stamp per day the customer buys (by phone). Complimentary-only orders don't count.
+    loyaltyCard: 10,       // visits per card (0 = off); the last visit gets a free drink or dessert
+    loyaltyToppingAt: 5,   // this visit gets one free topping (0 = none)
+    loyaltyDrinkMax: 200,  // free drink/dessert is worth up to this much; the customer pays any extra
     targetFoodCost: 30,
     pin: '',
     logoData: '',

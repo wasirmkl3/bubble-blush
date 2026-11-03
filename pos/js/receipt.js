@@ -57,6 +57,8 @@ const Receipt = (() => {
         if (l.promo && k === l.promoIndex) ops.push({ t: 'row', l: order.promoName || 'Free topping', r: '-' + m(l.promo * l.qty), z: 0.9, i: 2 });
       });
       if (l.compDrink) ops.push({ t: 'row', l: 'Complimentary drink', r: '-' + m(l.comp * l.qty), z: 0.9, i: 2 });
+      const lb = Store.lineCompBase(l);
+      if (lb) ops.push({ t: 'row', l: lb >= U.n(l.basePrice) ? 'Loyalty free drink' : `Loyalty (up to ${m(l.compBase)})`, r: '-' + m(lb * l.qty), z: 0.9, i: 2 });
       if (l.note) ops.push({ t: 'text', s: `Note: ${l.note}`, z: 0.9, i: 1 });
     });
     ops.push({ t: 'hr' });
@@ -77,6 +79,16 @@ const Receipt = (() => {
       ops.push({ t: 'row', l: 'Change', r: m(order.change) });
     }
     if (order.note) { ops.push({ t: 'hr' }); ops.push({ t: 'text', s: `Note: ${order.note}`, z: 0.9 }); }
+    if (order.stamp && order.stamp.card) {
+      // Loyalty card: which visit this was and what comes next.
+      const { pos, card, visit } = order.stamp;
+      ops.push({ t: 'hr' }, { t: 'text', s: `Loyalty card: visit ${pos} of ${card}`, a: 'c', b: true });
+      ops.push({ t: 'text', s: Array.from({ length: card }, (_, i) => (i < pos ? '■' : '□')).join(' '), a: 'c' });
+      let nx = null;
+      for (let v = visit + 1; v <= visit + card && !nx; v++) if (Store.rewardAt(v)) nx = { in: v - visit, r: Store.rewardAt(v) };
+      if (order.loyalty) ops.push({ t: 'text', s: `Reward today: ${Store.rewardLabel(order.loyalty.reward)}`, a: 'c', z: 0.9 });
+      if (nx) ops.push({ t: 'text', s: `${nx.in} more visit${nx.in === 1 ? '' : 's'}: ${Store.rewardLabel(nx.r)}`, a: 'c', z: 0.9 });
+    }
     ops.push({ t: 'hr' });
     String(st.receiptFooter || '').split('\n').filter((x) => x.trim()).forEach((x) => ops.push({ t: 'text', s: x, a: 'c', z: 0.9 }));
     if (st.social) ops.push({ t: 'text', s: st.social, a: 'c', b: true, z: 0.9 });
