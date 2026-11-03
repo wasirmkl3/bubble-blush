@@ -54,7 +54,7 @@ Views.orders = (() => {
     if (!list.length) { tbl.innerHTML = `<tr><td class="empty">No orders${orders.length ? ' match your search' : ' on ' + U.fmtDay(day)}.</td></tr>`; return; }
     tbl.innerHTML = `<thead><tr><th>#</th><th>Time</th><th>Drinks</th><th>Type</th><th>Customer</th><th>Payment</th><th class="r">Total</th><th>Status</th></tr></thead>
       <tbody>${list.map((o) => `<tr data-id="${o.id}" class="click ${o.status === 'void' ? 'void' : ''}">
-        <td><b>#${o.no}</b></td>
+        <td><b>#${o.no}</b>${o.moved ? ` <span title="Entered on ${U.esc(U.fmtDay(o.moved[0].fromDay))}, moved here">📅</span>` : ''}</td>
         <td>${U.fmtTime(o.at)}</td>
         <td class="wrap">${o.lines.map((l) => `${l.qty}× ${U.esc(l.name)}${l.sizeName ? ` <small>(${U.esc(l.sizeName)})</small>` : ''}${l.parcel ? ' 🥡' : ''}`).join(', ')}</td>
         <td>${U.esc(o.orderType)}</td>
@@ -84,6 +84,7 @@ Views.orders = (() => {
       wide: true,
       body: `
         ${o.status === 'void' ? `<div class="banner low">Voided ${U.fmtDateTime(o.voidAt)}${o.voidReason ? ' — ' + U.esc(o.voidReason) : ''}${o.restocked ? ' (stock returned)' : ''}</div>` : ''}
+        ${(o.moved || []).map((mv) => `<div class="banner info">📅 Entered on ${U.fmtDay(mv.fromDay)} as #${mv.fromNo} (${U.fmtTime(mv.fromAt)}), moved to ${U.fmtDay(mv.toDay)} on ${U.fmtDateTime(mv.movedAt)}.</div>`).join('')}
         ${o.status === 'unpaid' ? '<div class="banner warn">💰 Not paid yet: the kitchen copy went first. Press <b>Take payment</b> when the customer pays.</div>' : ''}
         <div class="kv"><span>Type</span><b>${U.esc(o.orderType)}</b><span>Payment</span><b>${o.status === 'unpaid' ? 'Not paid yet' : U.esc(o.payMethod)}</b>
           ${o.customerName || o.customerPhone ? `<span>Customer</span><b>${U.esc(o.customerName)} ${U.esc(o.customerPhone)}</b>` : ''}
@@ -104,6 +105,7 @@ Views.orders = (() => {
         </div>`,
       actions: [
         ...(o.status !== 'void' ? [{ label: 'Void order', cls: 'danger', left: true, onClick: () => voidFlow(o) }] : []),
+        ...(o.status === 'paid' ? [{ label: '📅 Move to another day', left: true, onClick: (dm) => { moveFlow(o, dm); return false; } }] : []),
         ...(o.status !== 'void' ? [{ label: o.ready ? 'Mark making' : 'Mark served', onClick: async () => { await Store.setReady(o, !o.ready); draw(); } }] : []),
         ...(Store.settings.stickersEnabled ? [{ label: '🏷 All stickers', onClick: () => { Print.stickers(o); return false; } }] : []),
         { label: '👩‍🍳 Kitchen copy', onClick: async () => { const r = await Print.kitchen(o, { reprint: !!o.kitchenAt }); if (r && r.ok) await Store.markKitchenPrinted(o); return false; } },
@@ -116,6 +118,52 @@ Views.orders = (() => {
       const b = e.target.closest('[data-sticker]');
       if (b) Print.stickers(o, Number(b.dataset.sticker));
     });
+  }
+
+  /* Forgot to enter an order (e.g. a complimentary drink for a relative) on its day?
+     Enter it today as usual, then move it here to the day it really happened. */
+  async function moveFlow(o, detail) {
+    if (!(await App.requirePin('Moving an order to another day needs the manager PIN.'))) return;
+    const today = Store.businessDay();
+    let to = o.dayKey === U.addDays(today, -1) ? U.addDays(today, -2) : U.addDays(today, -1);
+    if (to === o.dayKey) to = U.addDays(o.dayKey, -1);
+    const closes = await DB.all('dayCloses');
+    const chips = [[U.addDays(today, -1), 'Yesterday'], [U.addDays(today, -2), '2 days ago'], [U.addDays(today, -3), '3 days ago'], [today, 'Today']]
+      .filter(([d]) => d !== o.dayKey);
+    const cash = o.payMethod === 'Cash' && o.total > 0;
+    const md = U.modal({
+      title: `📅 Move order #${o.no} to another day`,
+      body: `<p>The order moves with its sales, complimentary cost and stock use. It gets the next order number on that day and keeps its time (${U.fmtTime(o.at)}).</p>
+        <div class="opt-group"><label>Move to</label><input type="date" id="mvDay" value="${to}" max="${today}">
+          <div class="chips mt">${chips.map(([d, l]) => `<button type="button" class="chip" data-d="${d}">${l}</button>`).join('')}</div>
+          <p class="muted small mt" id="mvLabel"></p></div>
+        <div id="mvWarn"></div>`,
+      actions: [{ label: 'Cancel' }, { label: 'Move order', cls: 'primary', onClick: async (m) => {
+        const d = U.$('#mvDay', m.el).value;
+        const fromNo = o.no; const fromDay = o.dayKey;
+        try { await Store.moveOrderDay(o, d); } catch (err) { U.toast(err.message || String(err), 'err'); return false; }
+        U.toast(`Order #${fromNo} (${U.fmtDay(fromDay)}) moved to ${U.fmtDay(d)} as #${o.no}`, 'ok', 5000);
+        detail?.close();
+        load();
+        return true;
+      } }],
+    });
+    const inp = U.$('#mvDay', md.el);
+    const upd = () => {
+      const d = inp.value;
+      const ok = d && d <= today && d !== o.dayKey;
+      md.el.querySelector('.modal-actions .primary').disabled = !ok;
+      U.$('#mvLabel', md.el).textContent = !d ? '' : d > today ? 'That day is in the future.' : d === o.dayKey ? 'The order is already on this day.' : U.fmtDay(d);
+      U.$$('[data-d]', md.el).forEach((b) => b.classList.toggle('on', b.dataset.d === d));
+      const closed = closes.filter((c) => c.id === d || c.id === o.dayKey);
+      U.$('#mvWarn', md.el).innerHTML = [
+        ...closed.map((c) => `<div class="banner warn">🔒 ${U.fmtDay(c.id)} was already closed. After moving, open Reports for that day, press <b>✓ Day closed — view</b> and <b>Update &amp; finish</b> to save and reprint the new totals.</div>`),
+        cash ? `<div class="banner low">💵 This order was paid in cash (${U.money(o.total)}). The money is in today's drawer, so moving it changes the expected cash for both days.</div>` : '',
+      ].join('');
+    };
+    inp.addEventListener('input', upd);
+    md.el.addEventListener('click', (e) => { const b = e.target.closest('[data-d]'); if (b) { inp.value = b.dataset.d; upd(); } });
+    upd();
   }
 
   async function voidFlow(o) {
