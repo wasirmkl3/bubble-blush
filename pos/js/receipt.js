@@ -144,7 +144,8 @@ const Receipt = (() => {
       { t: 'text', s: `Printed ${U.fmtDateTime(new Date().toISOString())}`, a: 'c', z: 0.85 },
       { t: 'hr' },
       { t: 'row', l: 'Orders', r: String(r.orders) },
-      { t: 'row', l: 'Cups sold', r: String(r.cups) },
+      { t: 'row', l: 'Cups sold', r: String(r.soldCups ?? r.cups) },
+      ...(r.compDrinks ? [{ t: 'row', l: 'Complimentary cups', r: String(r.compDrinks) }] : []),
       { t: 'row', l: 'Gross sales', r: m(r.gross) },
     ];
     if (r.promo) ops.push({ t: 'row', l: `Promotion (${r.promoCups} free toppings)`, r: '-' + m(r.promo) });

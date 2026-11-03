@@ -52,6 +52,10 @@ Views.reports = (() => {
       packagingCharges: U.sum(paid, (o) => o.packagingCharge || 0),
       parcelCups: U.sum(paid, (o) => U.sum(o.lines, (l) => (l.parcel ? Store.lineCups(l) : 0))),
     };
+    // Complimentary cups = whole drinks given free; a free topping on a paid drink is still a sold cup.
+    r.soldCups = r.cups - r.compDrinks;
+    r.compDrinkValue = U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? U.n(l.comp) * l.qty : 0)));
+    r.compDrinkCost = U.round(U.sum(paid, (o) => U.sum(o.lines, (l) => (l.compDrink ? U.n(l.compCost ?? Store.lineCost(l)) : 0))));
     r.net = r.collected;
     r.revenue = r.collected - r.vat;
     r.grossProfit = r.revenue - r.cogs;
@@ -210,8 +214,10 @@ Views.reports = (() => {
         </div>
       </div>
       <div class="stat-row">
-        <div class="stat big"><span>Sales collected</span><b>${U.money(r.collected)}</b><small>${r.orders} orders · ${r.cups} cups</small></div>
-        <div class="stat"><span>Avg. order</span><b>${U.money(r.avgOrder)}</b><small>${r.orders ? U.qty(r.cups / r.orders) : 0} cups/order</small></div>
+        <div class="stat big"><span>Sales collected</span><b>${U.money(r.collected)}</b><small>${r.orders} orders · ${r.soldCups} sold cups</small></div>
+        <div class="stat"><span>Sold cups</span><b>${r.soldCups}</b><small>paid drinks</small></div>
+        <div class="stat"><span>🎁 Complimentary cups</span><b>${r.compDrinks}</b><small>${r.compDrinks ? `menu ${U.money(r.compDrinkValue)} · cost ${U.money(r.compDrinkCost)}` : 'none given free'}</small></div>
+        <div class="stat"><span>Avg. order</span><b>${U.money(r.avgOrder)}</b><small>${r.orders ? U.qty(r.soldCups / r.orders) : 0} sold cups/order</small></div>
         <div class="stat"><span>Ingredient cost</span><b>${U.money(r.cogs)}</b><small>${U.pct(r.revenue ? r.cogs / r.revenue : 0)} of sales</small></div>
         <div class="stat good"><span>Gross profit</span><b>${U.money(r.grossProfit)}</b><small>margin ${U.pct(gm)}</small></div>
         <div class="stat"><span>Expenses</span><b>${U.money(r.opExpenses)}</b><small>rent, salary, bills…</small></div>
@@ -307,7 +313,7 @@ Views.reports = (() => {
         const rec = {
           id: day, at: new Date().toISOString(), openingCash, countedCash: counted, expectedCash,
           difference: counted === null ? null : counted - expectedCash, note: U.$('#dcNote', m.el).value.trim(),
-          totals: { orders: r.orders, cups: r.cups, collected: r.collected, cogs: r.cogs, comp: r.comp, compCost: r.compCost, cashSales: r.cashSales, cashExpenses: r.cashExpenses },
+          totals: { orders: r.orders, cups: r.cups, soldCups: r.soldCups, compCups: r.compDrinks, collected: r.collected, cogs: r.cogs, comp: r.comp, compCost: r.compCost, cashSales: r.cashSales, cashExpenses: r.cashExpenses },
         };
         await DB.put('dayCloses', rec);
         const doPrint = U.$('#dcPrint', m.el).checked;
