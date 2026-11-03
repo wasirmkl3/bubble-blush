@@ -77,6 +77,7 @@ With the **fast print** shortcut, stickers skip the print window and go to the *
 - Press **Ready ✓** in the "Making now" bar when a drink is handed over.
 - Use Inventory → **− Waste** for spilled drinks, staff drinks, and free samples, so stock stays correct.
 - Wrong order? Go to **Orders**, open it, and choose **Void** (with the PIN). Tick "put ingredients back" if the drink was not made.
+- **Forgot to enter an order on its day** (e.g. a complimentary drink for a relative yesterday)? Enter it today as usual, then go to **Orders**, open it and press **📅 Move to another day** (with the PIN). Pick *Yesterday* or any earlier date. The order gets the next order number on that day, and its sales, complimentary cost and stock use move with it, so Reports and the Z-report for both days are right. The order shows where it came from, and 📅 marks it in the list. If that day was already closed, open Reports for that day and press *Update & finish* to reprint the Z-report. Unpaid and voided orders can't be moved.
 
 **Closing**
 1. **Expenses**: add anything paid today (gas cylinder, cleaning, delivery…). Leave "Taken from drawer" ticked if it came from the cash drawer.

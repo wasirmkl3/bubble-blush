@@ -442,6 +442,35 @@ const Store = (() => {
       api.changed('orders');
     },
 
+    /* Move an order to an earlier business day (e.g. a complimentary drink that was forgotten
+       and entered today). It gets the next order number on that day, keeps its clock time,
+       and its stock movements move with it so Reports for both days stay right. */
+    async moveOrderDay(order, toDay) {
+      const today = api.businessDay();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(toDay || '')) throw new Error('Choose a day');
+      if (toDay > today) throw new Error('You cannot move an order to a future day');
+      if (toDay === order.dayKey) throw new Error('The order is already on that day');
+      if (order.status === 'void') throw new Error('Voided orders cannot be moved');
+      if (order.status === 'unpaid') throw new Error('Take the payment first, then move the order');
+      const old = new Date(order.at);
+      const at = U.parseDay(toDay);
+      at.setHours(old.getHours(), old.getMinutes(), old.getSeconds());
+      // Times before the day-start hour belong to the previous business day: keep it on toDay.
+      if (api.businessDay(at) !== toDay) at.setDate(at.getDate() + 1);
+      const no = await api.nextOrderNo(toDay);
+      const moves = (await DB.byIndex('stockMoves', 'orderId', order.id)).filter((m) => m.type === 'sale');
+      const history = [...(order.moved || []), { fromDay: order.dayKey, fromNo: order.no, fromAt: order.at, toDay, movedAt: new Date().toISOString() }];
+      const moved = { ...order, dayKey: toDay, no, at: at.toISOString(), moved: history };
+      await DB.transact(['orders', 'stockMoves'], (o) => {
+        o.orders.put(moved);
+        moves.forEach((m) => o.stockMoves.put({ ...m, dayKey: toDay, at: moved.at, note: `Order #${no}` }));
+      });
+      Object.assign(order, moved);
+      api.changed('orders');
+      api.changed('stock');
+      return order;
+    },
+
     async setReady(order, ready = true) {
       order.ready = ready;
       order.readyAt = ready ? new Date().toISOString() : null;
