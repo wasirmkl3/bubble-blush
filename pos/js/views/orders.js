@@ -39,13 +39,19 @@ Views.orders = (() => {
     const live = orders.filter((o) => o.status !== 'void');
     const paid = live.filter((o) => o.status !== 'unpaid');
     const unpaid = live.filter((o) => o.status === 'unpaid');
+    // Complimentary cups = whole drinks given free. A free topping on a paid drink is still a sold cup.
+    const freeCups = (o) => U.sum(o.lines || [], (l) => (l.compDrink && !Store.isToppingLine(l) ? U.n(l.qty) : 0));
+    const allCups = U.sum(live, (o) => o.cups);
+    const free = U.sum(live, freeCups);
+    const freeCost = U.round(U.sum(live.filter((o) => freeCups(o) > 0), (o) => U.sum(o.lines, (l) => (l.compDrink ? U.n(l.compCost ?? Store.lineCost(l)) : 0))));
     U.$('#oStats', root).innerHTML = [
       ['Orders', live.length],
-      ['Cups', U.sum(live, (o) => o.cups)],
+      ['Sold cups', allCups - free],
+      ['🎁 Complimentary cups', free, free ? `menu ${U.money(U.sum(live, (o) => U.sum(o.lines, (l) => (l.compDrink ? l.comp * l.qty : 0))))} · cost ${U.money(freeCost)}` : ''],
       ['Sales', U.money(U.sum(paid, (o) => o.total))],
       ...(unpaid.length ? [['Not paid yet', `${unpaid.length} · ${U.money(U.sum(unpaid, (o) => o.total))}`]] : []),
       ['Voided', orders.length - live.length],
-    ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+    ].map(([k, v, sm]) => `<div class="stat"><span>${k}</span><b>${v}</b>${sm ? `<small>${sm}</small>` : ''}</div>`).join('');
     const s = q.trim().toLowerCase();
     const list = orders.filter((o) => !s || String(o.no) === s.replace('#', '') ||
       (o.customerName || '').toLowerCase().includes(s) || (o.customerPhone || '').includes(s) ||
@@ -56,7 +62,7 @@ Views.orders = (() => {
       <tbody>${list.map((o) => `<tr data-id="${o.id}" class="click ${o.status === 'void' ? 'void' : ''}">
         <td><b>#${o.no}</b>${o.moved ? ` <span title="Entered on ${U.esc(U.fmtDay(o.moved[0].fromDay))}, moved here">📅</span>` : ''}</td>
         <td>${U.fmtTime(o.at)}</td>
-        <td class="wrap">${o.lines.map((l) => `${l.qty}× ${U.esc(l.name)}${l.sizeName ? ` <small>(${U.esc(l.sizeName)})</small>` : ''}${l.parcel ? ' 🥡' : ''}`).join(', ')}</td>
+        <td class="wrap">${o.lines.map((l) => `${l.qty}× ${U.esc(l.name)}${l.sizeName ? ` <small>(${U.esc(l.sizeName)})</small>` : ''}${l.parcel ? ' 🥡' : ''}${l.compDrink ? ' <b class="comp-tag">🎁 free</b>' : ''}`).join(', ')}</td>
         <td>${U.esc(o.orderType)}</td>
         <td>${U.esc(o.customerName || '')}${o.customerPhone ? `<br><small>${U.esc(o.customerPhone)}</small>` : ''}</td>
         <td>${o.status === 'unpaid' ? '<span class="badge out">Not paid</span>' : U.esc(o.payMethod)}</td>
