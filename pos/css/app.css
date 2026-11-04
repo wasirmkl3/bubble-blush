@@ -368,3 +368,7 @@ label.check input { width: 18px; height: 18px; accent-color: var(--teal-dd); }
 .stamps i.on { background: var(--teal-dd); }
 .stamps i.gift { border-color: #C2185B; }
 .stamps i.gift.on { background: #E0527A; }
+
+/* Customers tab */
+.click-row { cursor: pointer; border-radius: 6px; }
+.click-row:hover { background: var(--mist); }

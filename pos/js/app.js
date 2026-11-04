@@ -8,6 +8,7 @@ const App = (() => {
     { id: 'menu', label: 'Menu & Pricing', icon: '📋', key: 'F6', locked: true },
     { id: 'expenses', label: 'Expenses', icon: '💸', key: 'F7', locked: true },
     { id: 'reports', label: 'Reports', icon: '📈', key: 'F8', locked: true },
+    { id: 'customers', label: 'Customers', icon: '💙', locked: true },
     { id: 'settings', label: 'Settings', icon: '⚙️', key: 'F9', locked: true },
   ];
   let current = null;
@@ -17,7 +18,7 @@ const App = (() => {
 
   function renderNav() {
     const nav = U.$('#nav');
-    nav.innerHTML = NAV.map((n) => `<button type="button" data-view="${n.id}" title="${n.label} (${n.key})">
+    nav.innerHTML = NAV.map((n) => `<button type="button" data-view="${n.id}" title="${n.label}${n.key ? ` (${n.key})` : ''}">
       <span class="ni">${n.icon}</span><span class="nl">${n.label}</span></button>`).join('');
     nav.addEventListener('click', (e) => {
       const b = e.target.closest('[data-view]');

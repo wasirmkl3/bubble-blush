@@ -33,6 +33,7 @@ See **[docs/GUIDE.md](docs/GUIDE.md)** for printer setup and the daily routine.
 - **Expenses**: rent, salary, bills, and other costs, so profit is real profit.
 - **Orders**: browse any day, reprint, void, and **📅 move an order to an earlier day** if it was entered late (e.g. yesterday's complimentary drink for a relative).
 - **Loyalty card** by phone number: one stamp per day, 1 free topping on the 5th visit, a free Medium drink or dessert (up to ৳200) on the 10th, printed on the bill.
+- **Customers** (manager PIN): top customers, everyone's phone number, visits, cups, spend, favourite drink, last visit and loyalty card; tap a customer for the drinks and toppings they order and their order history. WhatsApp link and CSV export.
 - **Reports**: sales, profit, best and slowest sellers, busy hours, weekdays, payments, toppings, complimentary drinks (value and ingredient cost, by who got them), customers, ingredients used, CSV export, and an end-of-day **cash drawer close** with a printed Z-report.
 - **Safety**: manager PIN, one-click backup/restore, and daily backup reminders.
 

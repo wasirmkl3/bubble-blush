@@ -79,6 +79,7 @@ With the **fast print** shortcut, stickers skip the print window and go to the *
   - In the payment window, type the phone number. It shows *Loyalty card: visit 5 of 10* and, on a reward visit, a gold **🎁 Give free topping / Give free drink** button. Add the topping or drink first, then press it: the reward goes on one cup, the total drops, and it is saved as complimentary *Loyalty*, so Reports show what rewards cost.
   - The bill prints the card (■ ■ ■ □ □…) and how many visits to the next reward. A reward is given once per visit, on that day.
   - Change the card size, the free-topping visit and the ৳200 limit in Settings → Selling.
+- **💙 Customers** tab (manager PIN): see your **top customers**, the full list with phone numbers, visits (days), cups, money spent, favourite drink, last visit and where they are on the loyalty card. Sort by most spent, most visits, most cups, last visit or newest, and pick *All time*, *This month*, *Last 30 / 90 days*. *Reward on next visit* lists who gets a reward next time. Tap a customer to see every drink and topping they ordered, their usual sugar and ice, their orders, and a **💬 WhatsApp** button. **⬇ Customers CSV** downloads the list. Orders without a name or phone are not in the list.
 - Press **Ready ✓** in the "Making now" bar when a drink is handed over.
 - Use Inventory → **− Waste** for spilled drinks, staff drinks, and free samples, so stock stays correct.
 - Wrong order? Go to **Orders**, open it, and choose **Void** (with the PIN). Tick "put ingredients back" if the drink was not made.
