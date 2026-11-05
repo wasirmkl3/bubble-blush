@@ -5,6 +5,7 @@ Views.reports = (() => {
   let preset = 'today';
   let range = null;
   let data = null;
+  let drinkSel = ''; // drink picked in "Cups by size" ('' = all drinks); kept when the date range changes
 
   function presetRange(p) {
     const today = Store.businessDay();
@@ -104,6 +105,8 @@ Views.reports = (() => {
     r.compBy = Object.values(by).map((c) => ({ ...c, cost: U.round(c.cost) })).sort((a, b) => b.cost - a.cost);
 
     const items = {}; const tops = {}; const sizes = {}; const cats = {};
+    const drinkSizes = {}; const sizeCols = {};
+    (Store.S.settings.sizes || []).forEach((s) => { sizeCols[s.id] = s.name; });
     paid.forEach((o) => o.lines.forEach((l) => {
       (l.toppings || []).forEach((t) => {
         const q = l.qty * Store.topQty(t);
@@ -118,7 +121,16 @@ Views.reports = (() => {
       const cat = Store.S.category[Store.S.item[l.itemId]?.catId]?.name || 'Other';
       cats[cat] = cats[cat] || { name: cat, qty: 0, sales: 0 };
       cats[cat].qty += l.qty; cats[cat].sales += l.lineTotal;
+      // Cups used per drink and size (Medium / Large), complimentary cups included.
+      const sk = l.sizeId || l.sizeName || '?';
+      if (!(sk in sizeCols)) sizeCols[sk] = l.sizeName || sk;
+      const ds = drinkSizes[k] = drinkSizes[k] || { key: k, name: l.name, total: 0, free: 0, sizes: {} };
+      const z = ds.sizes[sk] = ds.sizes[sk] || { qty: 0, free: 0 };
+      const free = Store.isFreeCup(l) ? l.qty : 0;
+      z.qty += l.qty; z.free += free; ds.total += l.qty; ds.free += free;
     }));
+    r.sizeCols = Object.entries(sizeCols).map(([id, name]) => ({ id, name }));
+    r.drinkSizes = Object.values(drinkSizes).sort((a, b) => a.name.localeCompare(b.name));
     r.topItems = Object.values(items).sort((a, b) => b.qty - a.qty || b.sales - a.sales);
     r.toppings = Object.values(tops).sort((a, b) => b.qty - a.qty);
     r.sizes = Object.entries(sizes).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
@@ -197,6 +209,27 @@ Views.reports = (() => {
     return rows.map((x) => `<div class="bar-row"><span>${label(x)}</span><div class="bar"><i style="width:${(value(x) / max) * 100}%"></i></div><b>${fmt(value(x))}</b></div>`).join('');
   };
 
+  /* Cups by size: how many Medium / Large cups went out for one drink (or every drink) in the range. */
+  function cupsBySize(r) {
+    if (!r.drinkSizes.length) return '<p class="muted">No drinks sold yet.</p>';
+    const cols = r.sizeCols;
+    const freeNote = (n) => (n ? ` <small class="muted">(${n} free)</small>` : '');
+    const d = r.drinkSizes.find((x) => x.key === drinkSel);
+    const pick = `<select id="rDrink" class="mb"><option value="">All drinks</option>${r.drinkSizes
+      .map((x) => `<option value="${U.esc(x.key)}" ${d === x ? 'selected' : ''}>${U.esc(x.name)}</option>`).join('')}</select>`;
+    if (d) {
+      return `${pick}
+        ${cols.map((c) => { const z = d.sizes[c.id] || { qty: 0, free: 0 }; return `<div class="tot-row"><span>${U.esc(c.name)} cups</span><span><b>${z.qty}</b>${freeNote(z.free)}</span></div>`; }).join('')}
+        <div class="tot-row grand"><span>Total cups</span><span>${d.total}${freeNote(d.free)}</span></div>`;
+    }
+    const tot = (id) => U.sum(r.drinkSizes, (x) => x.sizes[id]?.qty || 0);
+    return `${pick}
+      <table class="tbl compact"><thead><tr><th>Drink</th>${cols.map((c) => `<th class="r">${U.esc(c.name)}</th>`).join('')}<th class="r">Total</th></tr></thead>
+        <tbody>${r.drinkSizes.map((x) => `<tr><td>${U.esc(x.name)}</td>${cols.map((c) => `<td class="r">${x.sizes[c.id]?.qty || 0}</td>`).join('')}<td class="r"><b>${x.total}</b></td></tr>`).join('')}</tbody>
+        <tfoot><tr><td><b>All drinks</b></td>${cols.map((c) => `<td class="r"><b>${tot(c.id)}</b></td>`).join('')}<td class="r"><b>${U.sum(r.drinkSizes, (x) => x.total)}</b></td></tr></tfoot></table>
+      <p class="muted small mt">Paid orders only; complimentary cups are included.</p>`;
+  }
+
   function draw() {
     const { r, close } = data;
     const [from, to] = range;
@@ -238,6 +271,7 @@ Views.reports = (() => {
           <tbody>${r.topItems.slice(0, 12).map((i) => `<tr><td>${U.esc(i.name)}</td><td class="r">${i.qty}</td><td class="r">${U.money(i.sales)}</td><td class="r">${U.money(i.sales - i.cost)}</td></tr>`).join('')}</tbody></table>`
           : '<p class="muted">No sales yet.</p>'}
           ${r.topItems.length > 3 ? `<p class="muted small mt">Slowest: ${r.topItems.slice(-3).reverse().map((i) => `${U.esc(i.name)} (${i.qty})`).join(', ')}</p>` : ''}</div>
+        <div class="card"><h3>🥤 Cups by size</h3><div id="rCups">${cupsBySize(r)}</div></div>
         <div class="card"><h3>⏰ Busy hours</h3>${hourSpan.length ? bars(hourSpan, (h) => `${((h.h + 11) % 12) + 1}${h.h < 12 ? 'am' : 'pm'}`, (h) => h.orders, (v) => `${v} orders`) : '<p class="muted">No sales yet.</p>'}</div>
         <div class="card"><h3>💳 Payments</h3>${r.payments.length ? bars(r.payments, (p) => `${U.esc(p.method)} <small>(${p.count})</small>`, (p) => p.amount) : '<p class="muted">No payments yet.</p>'}
           <h3 class="mt">🛍 Order type</h3>${r.orderTypes.length ? bars(r.orderTypes, (t) => `${U.esc(t.name)} <small>(${t.count})</small>`, (t) => t.amount) : '<p class="muted">—</p>'}</div>
@@ -294,6 +328,12 @@ Views.reports = (() => {
       ['Drink', 'Cups sold', 'Sales (BDT)', 'Ingredient cost (BDT)', 'Profit (BDT)'],
       ...r.topItems.map((i) => [i.name, i.qty, i.sales, U.round(i.cost), U.round(i.sales - i.cost)]),
     ]), 'text/csv');
+    const cupsBox = U.$('#rCups', body);
+    cupsBox.onchange = (e) => {
+      if (e.target.id !== 'rDrink') return;
+      drinkSel = e.target.value;
+      cupsBox.innerHTML = cupsBySize(r);
+    };
     const cb = U.$('#rClose', body);
     if (cb) cb.onclick = () => closeDay(from, r, close);
   }
